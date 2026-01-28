@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'home.dart'; 
+import 'home.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -13,47 +13,42 @@ class _LoginPageState extends State<LoginPage> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLoading = false;
+  bool _isLogin = true; 
 
-  // SIGN UP
-  Future<void> _signUp() async {
+  Future<void> _authenticate() async {
+    setState(() => _isLoading = true);
+    final email = _emailController.text.trim();
+    final password = _passwordController.text.trim();
+
     try {
-      setState(() => _isLoading = true);
-      await Supabase.instance.client.auth.signUp(
-        email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
-      );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Account Created! You can now Log In.")),
+      if (_isLogin) {
+        await Supabase.instance.client.auth.signInWithPassword(
+          email: email,
+          password: password,
         );
+      } else {
+        await Supabase.instance.client.auth.signUp(
+          email: email,
+          password: password,
+        );
+        if (mounted) {
+           ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Account Created! You are now logged in.")),
+          );
+        }
       }
-    } on AuthException catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Error occurred")));
-    } finally {
-      setState(() => _isLoading = false);
-    }
-  }
 
-  // LOG IN
-  Future<void> _signIn() async {
-    try {
-      setState(() => _isLoading = true);
-      await Supabase.instance.client.auth.signInWithPassword(
-        email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
-      );
       if (mounted) {
         Navigator.pushReplacement(
-          context, 
+          context,
           MaterialPageRoute(builder: (context) => const HomePage()),
         );
       }
+
     } on AuthException catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message), backgroundColor: Colors.red));
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Error occurred")));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Error: Check your connection.")));
     } finally {
       setState(() => _isLoading = false);
     }
@@ -62,56 +57,103 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white, // <--- White Background
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.flight_takeoff, size: 80, color: Colors.yellowAccent),
-              const SizedBox(height: 20),
-              const Text("LAKBAY", style: TextStyle(color: Colors.yellowAccent, fontSize: 40, fontWeight: FontWeight.bold)),
-              const Text("PLAN YOUR ADVENTURE", style: TextStyle(color: Colors.grey, letterSpacing: 2)),
-              const SizedBox(height: 50),
+              // YOUR LOGO
+              Image.asset(
+                'assets/lakbay.png', 
+                height: 150,
+                width: 150,
+              ),
               
+              const SizedBox(height: 20),
+              
+              Text(
+                _isLogin ? "WELCOME BACK" : "CREATE ACCOUNT",
+                style: const TextStyle(
+                  color: Colors.blue, // <--- Blue Text
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.5,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                _isLogin ? "Login to continue planning" : "Join Lakbay today",
+                style: const TextStyle(color: Colors.grey),
+              ),
+              const SizedBox(height: 50),
+
               TextField(
                 controller: _emailController,
-                style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(labelText: "Email", prefixIcon: Icon(Icons.email_outlined)),
+                style: const TextStyle(color: Colors.black), // <--- Black Input Text
+                decoration: const InputDecoration(
+                  labelText: "Email", 
+                  prefixIcon: Icon(Icons.email_outlined)
+                ),
               ),
               const SizedBox(height: 20),
               
               TextField(
                 controller: _passwordController,
                 obscureText: true,
-                style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(labelText: "Password", prefixIcon: Icon(Icons.lock_outline)),
+                style: const TextStyle(color: Colors.black), // <--- Black Input Text
+                decoration: const InputDecoration(
+                  labelText: "Password", 
+                  prefixIcon: Icon(Icons.lock_outline)
+                ),
               ),
               const SizedBox(height: 30),
 
-              _isLoading 
-              ? const CircularProgressIndicator(color: Colors.yellowAccent)
-              : Column(
-                  children: [
-                    SizedBox(
+              _isLoading
+                  ? const CircularProgressIndicator(color: Colors.blue)
+                  : SizedBox(
                       width: double.infinity,
                       height: 50,
                       child: ElevatedButton(
-                        onPressed: _signIn,
+                        onPressed: _authenticate,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.yellowAccent, 
-                          foregroundColor: Colors.black,
+                          backgroundColor: Colors.blue, // <--- Blue Button
+                          foregroundColor: Colors.white, // <--- White Text on Button
+                          elevation: 2,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                         ),
-                        child: const Text("LOGIN", style: TextStyle(fontWeight: FontWeight.bold)),
+                        child: Text(
+                          _isLogin ? "LOGIN" : "SIGN UP",
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                        ),
                       ),
                     ),
-                    const SizedBox(height: 15),
-                    TextButton(
-                      onPressed: _signUp,
-                      child: const Text("No account? Create one", style: TextStyle(color: Colors.grey)),
-                    )
-                  ],
-                )
+              
+              const SizedBox(height: 20),
+
+              TextButton(
+                onPressed: () {
+                  setState(() {
+                    _isLogin = !_isLogin; 
+                  });
+                },
+                child: RichText(
+                  text: TextSpan(
+                    style: const TextStyle(color: Colors.grey),
+                    children: [
+                      TextSpan(text: _isLogin ? "No account? " : "Already have an account? "),
+                      TextSpan(
+                        text: _isLogin ? "Sign Up" : "Log In",
+                        style: const TextStyle(
+                          color: Colors.blue, // <--- Blue Link
+                          fontWeight: FontWeight.bold
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ],
           ),
         ),

@@ -1,15 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'login.dart';
+import 'add_trip.dart'; // Make sure you have this file created!
 
-class HomePage extends StatelessWidget {
+class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
-  Future<void> _logout(BuildContext context) async {
+  @override
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  
+  // LOGOUT FUNCTION
+  Future<void> _logout() async {
     await Supabase.instance.client.auth.signOut();
-    if (context.mounted) {
+    if (mounted) {
       Navigator.pushReplacement(
-        context, 
+        context,
         MaterialPageRoute(builder: (context) => const LoginPage()),
       );
     }
@@ -18,72 +26,52 @@ class HomePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white, // White background
+      
+      // 1. APP BAR (Blue)
       appBar: AppBar(
-        title: const Text("LAKBAY: TAGOLOAN"),
+        title: const Text("My Itinerary"),
+        backgroundColor: Colors.blue,
+        foregroundColor: Colors.white,
         actions: [
           IconButton(
+            onPressed: _logout,
             icon: const Icon(Icons.logout),
-            onPressed: () => _logout(context),
-            tooltip: 'Logout',
+            tooltip: "Logout",
           )
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              "Where to next?",
-              style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.white),
-            ),
-            const SizedBox(height: 5),
-            Text("Plan your dream adventure.", style: TextStyle(fontSize: 16, color: Colors.grey[400])),
-            const SizedBox(height: 30),
 
-            Expanded(
-              child: GridView.count(
-                crossAxisCount: 2, 
-                crossAxisSpacing: 15,
-                mainAxisSpacing: 15,
-                children: [
-                  _buildMenuCard(icon: Icons.map_outlined, title: "Itinerary"),
-                  _buildMenuCard(icon: Icons.checklist_rtl, title: "Packing List"),
-                  _buildMenuCard(icon: Icons.attach_money, title: "Budget"),
-                  _buildMenuCard(icon: Icons.settings_outlined, title: "Settings"),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {},
-        backgroundColor: Colors.yellowAccent, 
-        foregroundColor: Colors.black, 
-        child: const Icon(Icons.add),
-      ),
-    );
-  }
-
-  Widget _buildMenuCard({required IconData icon, required String title}) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.grey[900], 
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.yellowAccent.withOpacity(0.2)), 
-      ),
-      child: InkWell(
-        onTap: () => print("$title Clicked"),
-        borderRadius: BorderRadius.circular(20),
+      // 2. BODY (The content)
+      body: const Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 40, color: Colors.yellowAccent), 
-            const SizedBox(height: 15),
-            Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+            Icon(Icons.flight_takeoff, size: 80, color: Colors.blueAccent),
+            SizedBox(height: 20),
+            Text(
+              "No trips yet!",
+              style: TextStyle(fontSize: 20, color: Colors.grey),
+            ),
+            Text(
+              "Tap the + button to plan your next adventure.",
+              style: TextStyle(color: Colors.grey),
+            ),
           ],
         ),
+      ),
+
+      // 3. FLOATING BUTTON (Blue +)
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          // Navigate to the "Add Trip" page
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const AddTripPage()),
+          );
+        },
+        backgroundColor: Colors.blue,
+        child: const Icon(Icons.add, color: Colors.white),
       ),
     );
   }
