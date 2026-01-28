@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'home.dart';
 
+// ==========================================
+// 1. THE LOGIN PAGE
+// ==========================================
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
 
@@ -13,147 +16,244 @@ class _LoginPageState extends State<LoginPage> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLoading = false;
-  bool _isLogin = true; 
 
-  Future<void> _authenticate() async {
-    setState(() => _isLoading = true);
+  Future<void> _login() async {
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
 
+    if (email.isEmpty || password.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("⚠️ Please enter email & password"), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
     try {
-      if (_isLogin) {
-        await Supabase.instance.client.auth.signInWithPassword(
-          email: email,
-          password: password,
-        );
-      } else {
-        await Supabase.instance.client.auth.signUp(
-          email: email,
-          password: password,
-        );
-        if (mounted) {
-           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Account Created! You are now logged in.")),
-          );
-        }
-      }
+      final response = await Supabase.instance.client.auth.signInWithPassword(
+        email: email,
+        password: password,
+      );
 
-      if (mounted) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const HomePage()),
-        );
+      if (response.session != null && mounted) {
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const HomePage()));
       }
-
-    } on AuthException catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message), backgroundColor: Colors.red));
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Error: Check your connection.")));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Login Failed: ${e.toString().split('\n')[0]}"), backgroundColor: Colors.red),
+        );
+      }
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white, // <--- White Background
+      backgroundColor: Colors.white,
       body: Center(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
+          padding: const EdgeInsets.all(24),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // YOUR LOGO
-              Image.asset(
-                'assets/lakbay.png', 
-                height: 150,
-                width: 150,
-              ),
-              
+              Image.asset('assets/lakbay.png', height: 120),
+              const SizedBox(height: 40),
+              const Text("Welcome Back!", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
               const SizedBox(height: 20),
-              
-              Text(
-                _isLogin ? "WELCOME BACK" : "CREATE ACCOUNT",
-                style: const TextStyle(
-                  color: Colors.blue, // <--- Blue Text
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.5,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                _isLogin ? "Login to continue planning" : "Join Lakbay today",
-                style: const TextStyle(color: Colors.grey),
-              ),
-              const SizedBox(height: 50),
-
               TextField(
                 controller: _emailController,
-                style: const TextStyle(color: Colors.black), // <--- Black Input Text
-                decoration: const InputDecoration(
-                  labelText: "Email", 
-                  prefixIcon: Icon(Icons.email_outlined)
-                ),
+                decoration: const InputDecoration(labelText: "Email", prefixIcon: Icon(Icons.email), border: OutlineInputBorder()),
               ),
-              const SizedBox(height: 20),
-              
+              const SizedBox(height: 15),
               TextField(
                 controller: _passwordController,
                 obscureText: true,
-                style: const TextStyle(color: Colors.black), // <--- Black Input Text
-                decoration: const InputDecoration(
-                  labelText: "Password", 
-                  prefixIcon: Icon(Icons.lock_outline)
+                decoration: const InputDecoration(labelText: "Password", prefixIcon: Icon(Icons.lock), border: OutlineInputBorder()),
+              ),
+              const SizedBox(height: 25),
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton(
+                  onPressed: _isLoading ? null : _login,
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white),
+                  child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text("LOGIN"),
                 ),
               ),
-              const SizedBox(height: 30),
-
-              _isLoading
-                  ? const CircularProgressIndicator(color: Colors.blue)
-                  : SizedBox(
-                      width: double.infinity,
-                      height: 50,
-                      child: ElevatedButton(
-                        onPressed: _authenticate,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue, // <--- Blue Button
-                          foregroundColor: Colors.white, // <--- White Text on Button
-                          elevation: 2,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        ),
-                        child: Text(
-                          _isLogin ? "LOGIN" : "SIGN UP",
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                        ),
-                      ),
-                    ),
-              
               const SizedBox(height: 20),
-
               TextButton(
-                onPressed: () {
-                  setState(() {
-                    _isLogin = !_isLogin; 
-                  });
-                },
-                child: RichText(
-                  text: TextSpan(
-                    style: const TextStyle(color: Colors.grey),
-                    children: [
-                      TextSpan(text: _isLogin ? "No account? " : "Already have an account? "),
-                      TextSpan(
-                        text: _isLogin ? "Sign Up" : "Log In",
-                        style: const TextStyle(
-                          color: Colors.blue, // <--- Blue Link
-                          fontWeight: FontWeight.bold
-                        ),
-                      ),
-                    ],
+                onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const SignupPage())),
+                child: const Text("Don't have an account? Sign Up"),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ==========================================
+// 2. THE SIGN UP PAGE (Updated for 8-Digit Codes)
+// ==========================================
+class SignupPage extends StatefulWidget {
+  const SignupPage({super.key});
+
+  @override
+  State<SignupPage> createState() => _SignupPageState();
+}
+
+class _SignupPageState extends State<SignupPage> {
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _otpController = TextEditingController();
+  
+  bool _isLoading = false;
+  bool _isOtpSent = false;
+
+  Future<void> _signUpStep1() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text.trim();
+
+    if (email.isEmpty || !email.contains('@') || !email.contains('.')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("⚠️ Please enter a valid email"), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    if (password.isEmpty || password.length < 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("⚠️ Password must be at least 6 characters"), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    try {
+      await Supabase.instance.client.auth.signUp(email: email, password: password);
+      
+      setState(() {
+        _isOtpSent = true;
+        _isLoading = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("✅ Code sent! Check your email.")),
+        );
+      }
+    } catch (e) {
+      setState(() => _isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Sign Up Error: ${e.toString().split('\n')[0]}"), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _signUpStep2() async {
+    final otp = _otpController.text.trim();
+    final email = _emailController.text.trim();
+
+    // --- FIX: Allow codes longer than 6 digits ---
+    if (otp.length < 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("⚠️ Code is too short"), backgroundColor: Colors.red),
+      );
+      return;
+    }
+    // ---------------------------------------------
+
+    setState(() => _isLoading = true);
+
+    try {
+      final response = await Supabase.instance.client.auth.verifyOTP(
+        token: otp,
+        type: OtpType.signup,
+        email: email,
+      );
+
+      if (response.session != null && mounted) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (context) => const HomePage()),
+          (route) => false,
+        );
+      }
+    } catch (e) {
+      setState(() => _isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("❌ Invalid Code"), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text("Create Account"), backgroundColor: Colors.white, foregroundColor: Colors.black, elevation: 0),
+      backgroundColor: Colors.white,
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            children: [
+              if (_isOtpSent) ...[
+                const Icon(Icons.mark_email_read, size: 80, color: Colors.blue),
+                const SizedBox(height: 20),
+                Text("Enter code sent to\n${_emailController.text}", textAlign: TextAlign.center, style: const TextStyle(fontSize: 16)),
+                const SizedBox(height: 30),
+                TextField(
+                  controller: _otpController,
+                  textAlign: TextAlign.center,
+                  keyboardType: TextInputType.number,
+                  style: const TextStyle(fontSize: 24, letterSpacing: 5),
+                  // Updated Label
+                  decoration: const InputDecoration(labelText: "Enter Verification Code", border: OutlineInputBorder()),
+                ),
+                const SizedBox(height: 25),
+                SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: ElevatedButton(
+                    onPressed: _isLoading ? null : _signUpStep2,
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
+                    child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text("VERIFY & FINISH"),
                   ),
                 ),
-              ),
+              ] else ...[
+                const Text("Sign up to start planning trips", style: TextStyle(color: Colors.grey, fontSize: 16)),
+                const SizedBox(height: 30),
+                TextField(
+                  controller: _emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(labelText: "Email", prefixIcon: Icon(Icons.email), border: OutlineInputBorder()),
+                ),
+                const SizedBox(height: 15),
+                TextField(
+                  controller: _passwordController,
+                  obscureText: true,
+                  decoration: const InputDecoration(labelText: "Create Password", prefixIcon: Icon(Icons.lock), border: OutlineInputBorder()),
+                ),
+                const SizedBox(height: 25),
+                SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: ElevatedButton(
+                    onPressed: _isLoading ? null : _signUpStep1,
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white),
+                    child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text("SEND CODE"),
+                  ),
+                ),
+              ]
             ],
           ),
         ),
