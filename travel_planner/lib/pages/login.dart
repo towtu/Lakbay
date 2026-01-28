@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-// 👇 FIXED IMPORT
-import 'package:travel_planner/utils/web_container.dart'; 
 import 'home.dart';
 
 // --- HELPER FUNCTION FOR POP-UPS ---
@@ -68,26 +66,23 @@ class _LoginPageState extends State<LoginPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      body: WebContainer( 
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              children: [
-                // Ensure this image exists in assets/lakbay.png
-                Image.asset('assets/lakbay.png', height: 120),
-                const SizedBox(height: 40),
-                const Text("Welcome Back!", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 20),
-                TextField(controller: _emailController, decoration: const InputDecoration(labelText: "Email", prefixIcon: Icon(Icons.email), border: OutlineInputBorder())),
-                const SizedBox(height: 15),
-                TextField(controller: _passwordController, obscureText: true, decoration: const InputDecoration(labelText: "Password", prefixIcon: Icon(Icons.lock), border: OutlineInputBorder())),
-                const SizedBox(height: 25),
-                SizedBox(width: double.infinity, height: 50, child: ElevatedButton(onPressed: _isLoading ? null : _login, style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white), child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text("LOGIN"))),
-                const SizedBox(height: 20),
-                TextButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const SignupPage())), child: const Text("Don't have an account? Sign Up")),
-              ],
-            ),
+      body: Center( // Changed back to simple Center
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            children: [
+              Image.asset('assets/lakbay.png', height: 120),
+              const SizedBox(height: 40),
+              const Text("Welcome Back!", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 20),
+              TextField(controller: _emailController, decoration: const InputDecoration(labelText: "Email", prefixIcon: Icon(Icons.email), border: OutlineInputBorder())),
+              const SizedBox(height: 15),
+              TextField(controller: _passwordController, obscureText: true, decoration: const InputDecoration(labelText: "Password", prefixIcon: Icon(Icons.lock), border: OutlineInputBorder())),
+              const SizedBox(height: 25),
+              SizedBox(width: double.infinity, height: 50, child: ElevatedButton(onPressed: _isLoading ? null : _login, style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white), child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text("LOGIN"))),
+              const SizedBox(height: 20),
+              TextButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const SignupPage())), child: const Text("Don't have an account? Sign Up")),
+            ],
           ),
         ),
       ),
@@ -161,31 +156,29 @@ class _SignupPageState extends State<SignupPage> {
     return Scaffold(
       appBar: AppBar(title: const Text("Create Account"), backgroundColor: Colors.white, foregroundColor: Colors.black, elevation: 0),
       backgroundColor: Colors.white,
-      body: WebContainer(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              children: [
-                if (_isOtpSent) ...[
-                  const Icon(Icons.mark_email_read, size: 80, color: Colors.blue),
-                  const SizedBox(height: 20),
-                  Text("Enter code sent to\n${_emailController.text}", textAlign: TextAlign.center),
-                  const SizedBox(height: 30),
-                  TextField(controller: _otpController, textAlign: TextAlign.center, keyboardType: TextInputType.number, style: const TextStyle(fontSize: 24, letterSpacing: 5), decoration: const InputDecoration(labelText: "Enter Verification Code", border: OutlineInputBorder())),
-                  const SizedBox(height: 25),
-                  SizedBox(width: double.infinity, height: 50, child: ElevatedButton(onPressed: _isLoading ? null : _signUpStep2, style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white), child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text("VERIFY & FINISH"))),
-                ] else ...[
-                  const Text("Sign up to start planning trips", style: TextStyle(color: Colors.grey, fontSize: 16)),
-                  const SizedBox(height: 30),
-                  TextField(controller: _emailController, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: "Email", prefixIcon: Icon(Icons.email), border: OutlineInputBorder())),
-                  const SizedBox(height: 15),
-                  TextField(controller: _passwordController, obscureText: true, decoration: const InputDecoration(labelText: "Create Password", prefixIcon: Icon(Icons.lock), border: OutlineInputBorder())),
-                  const SizedBox(height: 25),
-                  SizedBox(width: double.infinity, height: 50, child: ElevatedButton(onPressed: _isLoading ? null : _signUpStep1, style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white), child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text("SEND CODE"))),
-                ]
-              ],
-            ),
+      body: Center( // Changed back to simple Center
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            children: [
+              if (_isOtpSent) ...[
+                const Icon(Icons.mark_email_read, size: 80, color: Colors.blue),
+                const SizedBox(height: 20),
+                Text("Enter code sent to\n${_emailController.text}", textAlign: TextAlign.center),
+                const SizedBox(height: 30),
+                TextField(controller: _otpController, textAlign: TextAlign.center, keyboardType: TextInputType.number, style: const TextStyle(fontSize: 24, letterSpacing: 5), decoration: const InputDecoration(labelText: "Enter Verification Code", border: OutlineInputBorder())),
+                const SizedBox(height: 25),
+                SizedBox(width: double.infinity, height: 50, child: ElevatedButton(onPressed: _isLoading ? null : _signUpStep2, style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white), child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text("VERIFY & FINISH"))),
+              ] else ...[
+                const Text("Sign up to start planning trips", style: TextStyle(color: Colors.grey, fontSize: 16)),
+                const SizedBox(height: 30),
+                TextField(controller: _emailController, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: "Email", prefixIcon: Icon(Icons.email), border: OutlineInputBorder())),
+                const SizedBox(height: 15),
+                TextField(controller: _passwordController, obscureText: true, decoration: const InputDecoration(labelText: "Create Password", prefixIcon: Icon(Icons.lock), border: OutlineInputBorder())),
+                const SizedBox(height: 25),
+                SizedBox(width: double.infinity, height: 50, child: ElevatedButton(onPressed: _isLoading ? null : _signUpStep1, style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white), child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text("SEND CODE"))),
+              ]
+            ],
           ),
         ),
       ),
