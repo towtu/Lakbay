@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../utils/web_container.dart'; // <--- UPDATED PATH
 import 'home.dart';
 
 // --- HELPER FUNCTION FOR POP-UPS ---
@@ -16,21 +17,14 @@ void _showErrorDialog(BuildContext context, String title, String message) {
       ),
       content: Text(message),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text("OK"),
-        ),
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text("OK")),
       ],
     ),
   );
 }
 
-// ==========================================
-// 1. THE LOGIN PAGE
-// ==========================================
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
-
   @override
   State<LoginPage> createState() => _LoginPageState();
 }
@@ -44,31 +38,21 @@ class _LoginPageState extends State<LoginPage> {
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
 
-    // --- ERROR POP-UP: Empty Fields ---
     if (email.isEmpty || password.isEmpty) {
       _showErrorDialog(context, "Missing Info", "Please enter both your email and password.");
       return;
     }
 
     setState(() => _isLoading = true);
-
     try {
-      final response = await Supabase.instance.client.auth.signInWithPassword(
-        email: email,
-        password: password,
-      );
-
+      final response = await Supabase.instance.client.auth.signInWithPassword(email: email, password: password);
       if (response.session != null && mounted) {
         Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const HomePage()));
       }
     } catch (e) {
       if (mounted) {
-        // --- ERROR POP-UP: Wrong Password / No User ---
-        // We clean the error message to make it readable
         String errorMsg = e.toString().split('\n')[0];
-        if (errorMsg.contains("Invalid login credentials")) {
-          errorMsg = "Wrong email or password.";
-        }
+        if (errorMsg.contains("Invalid login credentials")) errorMsg = "Wrong email or password.";
         _showErrorDialog(context, "Login Failed", errorMsg);
       }
     } finally {
@@ -80,43 +64,25 @@ class _LoginPageState extends State<LoginPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            children: [
-              Image.asset('assets/lakbay.png', height: 120),
-              const SizedBox(height: 40),
-              const Text("Welcome Back!", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 20),
-              
-              TextField(
-                controller: _emailController,
-                decoration: const InputDecoration(labelText: "Email", prefixIcon: Icon(Icons.email), border: OutlineInputBorder()),
-              ),
-              const SizedBox(height: 15),
-              TextField(
-                controller: _passwordController,
-                obscureText: true,
-                decoration: const InputDecoration(labelText: "Password", prefixIcon: Icon(Icons.lock), border: OutlineInputBorder()),
-              ),
-              const SizedBox(height: 25),
-              
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton(
-                  onPressed: _isLoading ? null : _login,
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white),
-                  child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text("LOGIN"),
-                ),
-              ),
-              const SizedBox(height: 20),
-              TextButton(
-                onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const SignupPage())),
-                child: const Text("Don't have an account? Sign Up"),
-              ),
-            ],
+      body: WebContainer( 
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              children: [
+                Image.asset('assets/lakbay.png', height: 120),
+                const SizedBox(height: 40),
+                const Text("Welcome Back!", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 20),
+                TextField(controller: _emailController, decoration: const InputDecoration(labelText: "Email", prefixIcon: Icon(Icons.email), border: OutlineInputBorder())),
+                const SizedBox(height: 15),
+                TextField(controller: _passwordController, obscureText: true, decoration: const InputDecoration(labelText: "Password", prefixIcon: Icon(Icons.lock), border: OutlineInputBorder())),
+                const SizedBox(height: 25),
+                SizedBox(width: double.infinity, height: 50, child: ElevatedButton(onPressed: _isLoading ? null : _login, style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white), child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text("LOGIN"))),
+                const SizedBox(height: 20),
+                TextButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const SignupPage())), child: const Text("Don't have an account? Sign Up")),
+              ],
+            ),
           ),
         ),
       ),
@@ -124,12 +90,8 @@ class _LoginPageState extends State<LoginPage> {
   }
 }
 
-// ==========================================
-// 2. THE SIGN UP PAGE
-// ==========================================
 class SignupPage extends StatefulWidget {
   const SignupPage({super.key});
-
   @override
   State<SignupPage> createState() => _SignupPageState();
 }
@@ -138,7 +100,6 @@ class _SignupPageState extends State<SignupPage> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _otpController = TextEditingController();
-  
   bool _isLoading = false;
   bool _isOtpSent = false;
 
@@ -146,39 +107,23 @@ class _SignupPageState extends State<SignupPage> {
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
 
-    // --- ERROR POP-UP: Validation ---
     if (email.isEmpty || !email.contains('@') || !email.contains('.')) {
-      _showErrorDialog(context, "Invalid Email", "Please enter a valid email address (e.g., name@gmail.com).");
+      _showErrorDialog(context, "Invalid Email", "Please enter a valid email address.");
       return;
     }
-
     if (password.isEmpty || password.length < 6) {
       _showErrorDialog(context, "Weak Password", "Password must be at least 6 characters long.");
       return;
     }
 
     setState(() => _isLoading = true);
-
     try {
       await Supabase.instance.client.auth.signUp(email: email, password: password);
-      
-      setState(() {
-        _isOtpSent = true;
-        _isLoading = false;
-      });
-
-      if (mounted) {
-        // Success can remain a SnackBar (green) because it's good news
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("✅ Code sent! Check your email.")),
-        );
-      }
+      setState(() { _isOtpSent = true; _isLoading = false; });
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("✅ Code sent! Check your email.")));
     } catch (e) {
       setState(() => _isLoading = false);
-      if (mounted) {
-        // --- ERROR POP-UP: Sign Up Failed ---
-        _showErrorDialog(context, "Sign Up Failed", e.toString().split('\n')[0]);
-      }
+      if (mounted) _showErrorDialog(context, "Sign Up Failed", e.toString().split('\n')[0]);
     }
   }
 
@@ -187,32 +132,19 @@ class _SignupPageState extends State<SignupPage> {
     final email = _emailController.text.trim();
 
     if (otp.length < 6) {
-       _showErrorDialog(context, "Invalid Code", "The code must be at least 6 digits.");
+      _showErrorDialog(context, "Invalid Code", "The code must be at least 6 digits.");
       return;
     }
 
     setState(() => _isLoading = true);
-
     try {
-      final response = await Supabase.instance.client.auth.verifyOTP(
-        token: otp,
-        type: OtpType.signup,
-        email: email,
-      );
-
+      final response = await Supabase.instance.client.auth.verifyOTP(token: otp, type: OtpType.signup, email: email);
       if (response.session != null && mounted) {
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (context) => const HomePage()),
-          (route) => false,
-        );
+        Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (context) => const HomePage()), (route) => false);
       }
     } catch (e) {
       setState(() => _isLoading = false);
-      if (mounted) {
-        // --- ERROR POP-UP: Wrong Code ---
-        _showErrorDialog(context, "Verification Failed", "The code you entered is incorrect or expired.");
-      }
+      if (mounted) _showErrorDialog(context, "Verification Failed", "The code you entered is incorrect or expired.");
     }
   }
 
@@ -221,59 +153,31 @@ class _SignupPageState extends State<SignupPage> {
     return Scaffold(
       appBar: AppBar(title: const Text("Create Account"), backgroundColor: Colors.white, foregroundColor: Colors.black, elevation: 0),
       backgroundColor: Colors.white,
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            children: [
-              if (_isOtpSent) ...[
-                const Icon(Icons.mark_email_read, size: 80, color: Colors.blue),
-                const SizedBox(height: 20),
-                Text("Enter code sent to\n${_emailController.text}", textAlign: TextAlign.center, style: const TextStyle(fontSize: 16)),
-                const SizedBox(height: 30),
-                TextField(
-                  controller: _otpController,
-                  textAlign: TextAlign.center,
-                  keyboardType: TextInputType.number,
-                  style: const TextStyle(fontSize: 24, letterSpacing: 5),
-                  decoration: const InputDecoration(labelText: "Enter Verification Code", border: OutlineInputBorder()),
-                ),
-                const SizedBox(height: 25),
-                SizedBox(
-                  width: double.infinity,
-                  height: 50,
-                  child: ElevatedButton(
-                    onPressed: _isLoading ? null : _signUpStep2,
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
-                    child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text("VERIFY & FINISH"),
-                  ),
-                ),
-              ] else ...[
-                const Text("Sign up to start planning trips", style: TextStyle(color: Colors.grey, fontSize: 16)),
-                const SizedBox(height: 30),
-                TextField(
-                  controller: _emailController,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(labelText: "Email", prefixIcon: Icon(Icons.email), border: OutlineInputBorder()),
-                ),
-                const SizedBox(height: 15),
-                TextField(
-                  controller: _passwordController,
-                  obscureText: true,
-                  decoration: const InputDecoration(labelText: "Create Password", prefixIcon: Icon(Icons.lock), border: OutlineInputBorder()),
-                ),
-                const SizedBox(height: 25),
-                SizedBox(
-                  width: double.infinity,
-                  height: 50,
-                  child: ElevatedButton(
-                    onPressed: _isLoading ? null : _signUpStep1,
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white),
-                    child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text("SEND CODE"),
-                  ),
-                ),
-              ]
-            ],
+      body: WebContainer(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              children: [
+                if (_isOtpSent) ...[
+                  const Icon(Icons.mark_email_read, size: 80, color: Colors.blue),
+                  const SizedBox(height: 20),
+                  Text("Enter code sent to\n${_emailController.text}", textAlign: TextAlign.center),
+                  const SizedBox(height: 30),
+                  TextField(controller: _otpController, textAlign: TextAlign.center, keyboardType: TextInputType.number, style: const TextStyle(fontSize: 24, letterSpacing: 5), decoration: const InputDecoration(labelText: "Enter Verification Code", border: OutlineInputBorder())),
+                  const SizedBox(height: 25),
+                  SizedBox(width: double.infinity, height: 50, child: ElevatedButton(onPressed: _isLoading ? null : _signUpStep2, style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white), child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text("VERIFY & FINISH"))),
+                ] else ...[
+                  const Text("Sign up to start planning trips", style: TextStyle(color: Colors.grey, fontSize: 16)),
+                  const SizedBox(height: 30),
+                  TextField(controller: _emailController, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: "Email", prefixIcon: Icon(Icons.email), border: OutlineInputBorder())),
+                  const SizedBox(height: 15),
+                  TextField(controller: _passwordController, obscureText: true, decoration: const InputDecoration(labelText: "Create Password", prefixIcon: Icon(Icons.lock), border: OutlineInputBorder())),
+                  const SizedBox(height: 25),
+                  SizedBox(width: double.infinity, height: 50, child: ElevatedButton(onPressed: _isLoading ? null : _signUpStep1, style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white), child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text("SEND CODE"))),
+                ]
+              ],
+            ),
           ),
         ),
       ),
