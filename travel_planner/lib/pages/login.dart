@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../utils/web_container.dart'; // <--- UPDATED PATH
+// 👇 FIXED IMPORT
+import 'package:travel_planner/utils/web_container.dart'; 
 import 'home.dart';
 
 // --- HELPER FUNCTION FOR POP-UPS ---
@@ -23,6 +24,9 @@ void _showErrorDialog(BuildContext context, String title, String message) {
   );
 }
 
+// ==========================================
+// 1. THE LOGIN PAGE
+// ==========================================
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
   @override
@@ -70,6 +74,7 @@ class _LoginPageState extends State<LoginPage> {
             padding: const EdgeInsets.all(24),
             child: Column(
               children: [
+                // Ensure this image exists in assets/lakbay.png
                 Image.asset('assets/lakbay.png', height: 120),
                 const SizedBox(height: 40),
                 const Text("Welcome Back!", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
@@ -90,6 +95,9 @@ class _LoginPageState extends State<LoginPage> {
   }
 }
 
+// ==========================================
+// 2. THE SIGN UP PAGE
+// ==========================================
 class SignupPage extends StatefulWidget {
   const SignupPage({super.key});
   @override
