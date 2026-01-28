@@ -14,6 +14,7 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  // Stream to listen to database changes in real-time
   final _tripsStream = Supabase.instance.client
       .from('trips')
       .stream(primaryKey: ['id'])
@@ -21,9 +22,9 @@ class _HomePageState extends State<HomePage> {
 
   final currencyFormat = NumberFormat("#,##0", "en_US");
 
-  // --- DELETE LOGIC (BOTTOM SHEET) ---
+  // --- DELETE TRIP (With Bottom Sheet) ---
   Future<void> _deleteTrip(int id) async {
-    // 1. Show Bottom Sheet (Pop up from below)
+    // 1. Ask "Are you sure?"
     bool? confirm = await showModalBottomSheet<bool>(
       context: context,
       backgroundColor: Colors.white,
@@ -32,10 +33,9 @@ class _HomePageState extends State<HomePage> {
       ),
       builder: (context) => Container(
         padding: const EdgeInsets.all(20),
-        height: 200, // Fixed height for the bottom sheet
+        height: 200, 
         child: Column(
           children: [
-            // Handle bar (visual touch)
             Container(
               width: 40, height: 5,
               margin: const EdgeInsets.only(bottom: 20),
@@ -76,19 +76,17 @@ class _HomePageState extends State<HomePage> {
       ),
     );
 
-    // 2. Check result
     if (confirm != true) return;
 
-    // 3. Delete from Database
+    // 2. Perform Delete
     try {
       await Supabase.instance.client.from('trips').delete().eq('id', id);
       
       if (mounted) {
-        // Show success message at the bottom
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text("Trip deleted."),
-            behavior: SnackBarBehavior.floating, // Floats above bottom
+            behavior: SnackBarBehavior.floating,
             backgroundColor: Colors.grey,
           ),
         );
@@ -102,12 +100,60 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  // --- LOGOUT (With Pop-ups) ---
   Future<void> _logout() async {
+    // 1. Confirmation Dialog
+    bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Log Out"),
+        content: const Text("Are you sure you want to log out?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false), // Stay
+            child: const Text("Cancel"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true), // Leave
+            child: const Text("Log Out", style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    // 2. Perform Logout
     await Supabase.instance.client.auth.signOut();
+
     if (mounted) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const LoginPage()),
+      // 3. Success Dialog (Wait for user to click OK)
+      await showDialog(
+        context: context,
+        barrierDismissible: false, // Prevents clicking outside to close
+        builder: (context) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.green),
+              SizedBox(width: 10),
+              Text("Logged Out"),
+            ],
+          ),
+          content: const Text("You have logged out successfully."),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context); // Close Dialog
+                // 4. Go to Login Page
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(builder: (context) => const LoginPage()),
+                );
+              },
+              child: const Text("OK"),
+            ),
+          ],
+        ),
       );
     }
   }
@@ -124,6 +170,7 @@ class _HomePageState extends State<HomePage> {
             icon: const Icon(Icons.map),
             tooltip: "Global Map",
           ),
+          // Logout Button
           IconButton(onPressed: _logout, icon: const Icon(Icons.logout)),
         ],
       ),
@@ -133,6 +180,7 @@ class _HomePageState extends State<HomePage> {
         builder: (context, snapshot) {
           if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
           final trips = snapshot.data!;
+          
           if (trips.isEmpty) {
             return const Center(
               child: Column(
@@ -211,6 +259,7 @@ class _HomePageState extends State<HomePage> {
                           ),
                         ),
 
+                        // Delete Button
                         IconButton(
                           icon: const Icon(Icons.delete_outline, color: Colors.red),
                           onPressed: () => _deleteTrip(trip['id']),

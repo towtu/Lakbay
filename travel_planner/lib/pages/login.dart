@@ -2,6 +2,29 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'home.dart';
 
+// --- HELPER FUNCTION FOR POP-UPS ---
+void _showErrorDialog(BuildContext context, String title, String message) {
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Row(
+        children: [
+          const Icon(Icons.error_outline, color: Colors.red),
+          const SizedBox(width: 10),
+          Text(title, style: const TextStyle(color: Colors.red)),
+        ],
+      ),
+      content: Text(message),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text("OK"),
+        ),
+      ],
+    ),
+  );
+}
+
 // ==========================================
 // 1. THE LOGIN PAGE
 // ==========================================
@@ -21,10 +44,9 @@ class _LoginPageState extends State<LoginPage> {
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
 
+    // --- ERROR POP-UP: Empty Fields ---
     if (email.isEmpty || password.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("⚠️ Please enter email & password"), backgroundColor: Colors.red),
-      );
+      _showErrorDialog(context, "Missing Info", "Please enter both your email and password.");
       return;
     }
 
@@ -41,9 +63,13 @@ class _LoginPageState extends State<LoginPage> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Login Failed: ${e.toString().split('\n')[0]}"), backgroundColor: Colors.red),
-        );
+        // --- ERROR POP-UP: Wrong Password / No User ---
+        // We clean the error message to make it readable
+        String errorMsg = e.toString().split('\n')[0];
+        if (errorMsg.contains("Invalid login credentials")) {
+          errorMsg = "Wrong email or password.";
+        }
+        _showErrorDialog(context, "Login Failed", errorMsg);
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -63,6 +89,7 @@ class _LoginPageState extends State<LoginPage> {
               const SizedBox(height: 40),
               const Text("Welcome Back!", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
               const SizedBox(height: 20),
+              
               TextField(
                 controller: _emailController,
                 decoration: const InputDecoration(labelText: "Email", prefixIcon: Icon(Icons.email), border: OutlineInputBorder()),
@@ -74,6 +101,7 @@ class _LoginPageState extends State<LoginPage> {
                 decoration: const InputDecoration(labelText: "Password", prefixIcon: Icon(Icons.lock), border: OutlineInputBorder()),
               ),
               const SizedBox(height: 25),
+              
               SizedBox(
                 width: double.infinity,
                 height: 50,
@@ -97,7 +125,7 @@ class _LoginPageState extends State<LoginPage> {
 }
 
 // ==========================================
-// 2. THE SIGN UP PAGE (Updated for 8-Digit Codes)
+// 2. THE SIGN UP PAGE
 // ==========================================
 class SignupPage extends StatefulWidget {
   const SignupPage({super.key});
@@ -118,17 +146,14 @@ class _SignupPageState extends State<SignupPage> {
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
 
+    // --- ERROR POP-UP: Validation ---
     if (email.isEmpty || !email.contains('@') || !email.contains('.')) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("⚠️ Please enter a valid email"), backgroundColor: Colors.red),
-      );
+      _showErrorDialog(context, "Invalid Email", "Please enter a valid email address (e.g., name@gmail.com).");
       return;
     }
 
     if (password.isEmpty || password.length < 6) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("⚠️ Password must be at least 6 characters"), backgroundColor: Colors.red),
-      );
+      _showErrorDialog(context, "Weak Password", "Password must be at least 6 characters long.");
       return;
     }
 
@@ -143,6 +168,7 @@ class _SignupPageState extends State<SignupPage> {
       });
 
       if (mounted) {
+        // Success can remain a SnackBar (green) because it's good news
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("✅ Code sent! Check your email.")),
         );
@@ -150,9 +176,8 @@ class _SignupPageState extends State<SignupPage> {
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Sign Up Error: ${e.toString().split('\n')[0]}"), backgroundColor: Colors.red),
-        );
+        // --- ERROR POP-UP: Sign Up Failed ---
+        _showErrorDialog(context, "Sign Up Failed", e.toString().split('\n')[0]);
       }
     }
   }
@@ -161,14 +186,10 @@ class _SignupPageState extends State<SignupPage> {
     final otp = _otpController.text.trim();
     final email = _emailController.text.trim();
 
-    // --- FIX: Allow codes longer than 6 digits ---
     if (otp.length < 6) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("⚠️ Code is too short"), backgroundColor: Colors.red),
-      );
+       _showErrorDialog(context, "Invalid Code", "The code must be at least 6 digits.");
       return;
     }
-    // ---------------------------------------------
 
     setState(() => _isLoading = true);
 
@@ -189,9 +210,8 @@ class _SignupPageState extends State<SignupPage> {
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("❌ Invalid Code"), backgroundColor: Colors.red),
-        );
+        // --- ERROR POP-UP: Wrong Code ---
+        _showErrorDialog(context, "Verification Failed", "The code you entered is incorrect or expired.");
       }
     }
   }
@@ -216,7 +236,6 @@ class _SignupPageState extends State<SignupPage> {
                   textAlign: TextAlign.center,
                   keyboardType: TextInputType.number,
                   style: const TextStyle(fontSize: 24, letterSpacing: 5),
-                  // Updated Label
                   decoration: const InputDecoration(labelText: "Enter Verification Code", border: OutlineInputBorder()),
                 ),
                 const SizedBox(height: 25),
