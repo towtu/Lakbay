@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
-import 'package:travel_planner/utils/web_container.dart'; // <--- The Import
+import 'package:travel_planner/utils/web_container.dart';
 import 'login.dart';
 import 'add_trip.dart';
 import 'map_page.dart';
-import 'trip_preview.dart';
+import 'trip_details.dart'; // <--- NEW IMPORT
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -52,7 +52,7 @@ class _HomePageState extends State<HomePage> {
           IconButton(onPressed: _logout, icon: const Icon(Icons.logout)),
         ],
       ),
-      body: WebContainer( // <--- Wrapped in WebContainer
+      body: WebContainer(
         child: StreamBuilder<List<Map<String, dynamic>>>(
           stream: _tripsStream,
           builder: (context, snapshot) {
@@ -75,9 +75,10 @@ class _HomePageState extends State<HomePage> {
                     subtitle: Text("Budget: ₱${currencyFormat.format(trip['budget'])}"),
                     trailing: IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red), onPressed: () => _deleteTrip(trip['id'])),
                     onTap: () {
-                      if (trip['latitude'] != null) {
-                        Navigator.push(context, MaterialPageRoute(builder: (context) => TripPreviewPage(tripName: trip['destination'], lat: trip['latitude'], lng: trip['longitude'])));
-                      }
+                      // Navigate to the new Details Page (Weather, Budget, Packing)
+                      Navigator.push(context, MaterialPageRoute(
+                        builder: (context) => TripDetailsPage(trip: trip),
+                      ));
                     },
                   ),
                 );

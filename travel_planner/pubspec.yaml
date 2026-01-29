@@ -20,7 +20,7 @@ dependencies:
   # --- NEW MAP FEATURES ---
   flutter_map: ^6.0.0       # The Free Map (OpenStreetMap)
   latlong2: ^0.9.0          # Helper for Coordinates
-  url_launcher: ^6.2.0      # Opens Google Maps for Directions
+  url_launcher: ^6.3.2      # Opens Google Maps for Directions
   geolocator: ^10.1.0
   geocoding: ^2.1.0
   http: ^1.1.0
@@ -42,7 +42,7 @@ flutter:
 
 # 👇 ADD THIS ENTIRE SECTION AT THE BOTTOM 👇
 flutter_launcher_icons:
-  android: "launcher_icon"
+  android: true
   ios: true
   image_path: "assets/lakbay.png"
   min_sdk_android: 21
