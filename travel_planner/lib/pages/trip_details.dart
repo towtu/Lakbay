@@ -72,15 +72,26 @@ class _TripDetailsPageState extends State<TripDetailsPage> {
       _canEdit = isOwner || isEditor;
     });
 
+    // 🚀 FIX: Fetch the REAL code from the database, don't rely on the previous screen
     if (_isOwner) {
-      if (widget.trip['join_code'] == null) {
+      final freshTripData = await Supabase.instance.client
+          .from('trips')
+          .select('join_code')
+          .eq('id', widget.trip['id'])
+          .maybeSingle();
+      
+      String? existingCode = freshTripData?['join_code'];
+
+      if (existingCode != null) {
+        // If code exists in DB, use it!
+        if (mounted) setState(() => _joinCode = existingCode);
+      } else {
+        // Only generate new if DB is truly empty
         final newCode = "LAK-${Random().nextInt(9000) + 1000}";
         try {
           await Supabase.instance.client.from('trips').update({'join_code': newCode}).eq('id', widget.trip['id']);
         } catch (_) {}
         if (mounted) setState(() => _joinCode = newCode);
-      } else {
-        if (mounted) setState(() => _joinCode = widget.trip['join_code']);
       }
     }
   }
@@ -121,13 +132,12 @@ class _TripDetailsPageState extends State<TripDetailsPage> {
     } catch (e) { if (mounted) setState(() => _isLoadingWeather = false); }
   }
 
-  // 🚀 FIX: Use the Official Google Maps Directions Link
   Future<void> _openGoogleMaps() async {
     final lat = widget.trip['latitude'];
     final lng = widget.trip['longitude'];
     if (lat == null || lng == null) return;
     
-    // "dir" means Directions. "destination" is where you are going.
+    // Official Google Maps Link
     final googleMapsUrl = Uri.parse('https://www.google.com/maps/dir/?api=1&destination=$lat,$lng');
     
     try {
