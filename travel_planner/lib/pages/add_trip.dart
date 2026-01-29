@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'dart:async';
-import 'dart:math'; // Import for Random Code Generation
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -110,24 +110,38 @@ class _AddTripPageState extends State<AddTripPage> {
       return;
     }
 
-    final userId = Supabase.instance.client.auth.currentUser!.id;
-    
-    // 🎲 GENERATE CODE HERE (Once and Forever)
+    final user = Supabase.instance.client.auth.currentUser!;
     final String fixedJoinCode = "LAK-${1000 + Random().nextInt(9000)}";
 
     final newTrip = {
-      'user_id': userId,
+      'user_id': user.id,
       'destination': _destinationController.text.trim(),
       'budget': double.parse(_budgetController.text.trim()).toInt(),
       'latitude': _selectedLocation.latitude,
       'longitude': _selectedLocation.longitude,
       'start_date': _startDate!.toIso8601String(),
       'end_date': _endDate!.toIso8601String(),
-      'join_code': fixedJoinCode, // <--- SAVED PERMANENTLY
+      'join_code': fixedJoinCode,
     };
 
     try {
-      await Supabase.instance.client.from('trips').insert(newTrip).timeout(const Duration(seconds: 2));
+      // 🚀 1. INSERT TRIP & GET ID BACK (.select())
+      final data = await Supabase.instance.client
+          .from('trips')
+          .insert(newTrip)
+          .select() // <--- This returns the new row!
+          .timeout(const Duration(seconds: 3));
+
+      final newTripId = data[0]['id'];
+
+      // 🚀 2. AUTO-ADD CREATOR AS MEMBER
+      await Supabase.instance.client.from('trip_members').insert({
+        'trip_id': newTripId,
+        'name': 'Me (Owner)', // Or pull their real name if you have it
+        'email': user.email,
+        'is_paid': false
+      });
+      
       if (mounted) Navigator.pop(context);
     } catch (e) {
       // Offline fallback
@@ -138,7 +152,7 @@ class _AddTripPageState extends State<AddTripPage> {
       await prefs.setStringList('offline_queue', offlineTrips);
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("No Internet. Trip saved to device!"), backgroundColor: Colors.orange));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("No Internet. Trip saved locally!"), backgroundColor: Colors.orange));
       }
     }
   }

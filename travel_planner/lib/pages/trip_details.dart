@@ -156,14 +156,10 @@ class _TripDetailsPageState extends State<TripDetailsPage> {
     if (mounted) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(approve ? "User approved!" : "User rejected."))); _refreshAllStreams(); }
   }
 
-  // 🗑️ DELETED: _showDeleteConfirm is gone!
-
-  // Now deletes immediately
   Future<void> _deleteGeneric(String table, int id) async { 
     await Supabase.instance.client.from(table).delete().eq('id', id); 
     if (mounted) _refreshAllStreams(); 
   }
-  
   Future<void> _addItemGeneric(String table, Map<String, dynamic> data) async { await Supabase.instance.client.from(table).insert(data); if (mounted) _refreshAllStreams(); }
 
   Future<void> _addExpense() async { final t=TextEditingController(); final a=TextEditingController(); await showDialog(context: context, builder: (context) => AlertDialog(title: const Text("Add Expense"), content: Column(mainAxisSize: MainAxisSize.min, children:[TextField(controller: t, decoration: const InputDecoration(labelText: "Item")), TextField(controller: a, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Cost"))]), actions:[TextButton(onPressed:()=>Navigator.pop(context), child:const Text("Cancel")), ElevatedButton(onPressed:() async {if(t.text.isNotEmpty && a.text.isNotEmpty) {await _addItemGeneric('expenses', {'trip_id': widget.trip['id'], 'title': t.text, 'amount': double.parse(a.text)}); Navigator.pop(context);}}, child: const Text("Add"))])); }
@@ -231,7 +227,6 @@ class _TripDetailsPageState extends State<TripDetailsPage> {
                 Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(gradient: LinearGradient(colors: [Colors.blue.shade400, Colors.blue.shade200]), borderRadius: BorderRadius.circular(16)), child: Row(children: [Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text("${_weatherData!['main']['temp'].toStringAsFixed(1)}°C", style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white)), Text(_weatherData!['weather'][0]['description'].toUpperCase(), style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold))]), const Spacer(), Icon(Icons.wb_sunny, size: 48, color: Colors.white)])),
               if (hasLocation) const SizedBox(height: 20),
 
-              // 📝 NOTES (Direct Delete)
               Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Travel Notes", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)), if (_canEdit) IconButton(onPressed: _addNote, icon: const Icon(Icons.note_add, color: Colors.blue))]),
               StreamBuilder<List<Map<String, dynamic>>>(
                 stream: _notesStream,
@@ -242,21 +237,59 @@ class _TripDetailsPageState extends State<TripDetailsPage> {
               ),
               const SizedBox(height: 20),
 
-              // 💰 BUDGET (Direct Delete)
+              // 💰 BUDGET SECTION (Updated with Per Person Split)
               const Text("Budget", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+              
+              // We nest Members stream INSIDE the Budget area to calculate split
               StreamBuilder<List<Map<String, dynamic>>>(
-                stream: _expensesStream,
-                builder: (context, snapshot) {
-                  if (!snapshot.hasData) return const LinearProgressIndicator();
-                  final expenses = snapshot.data!;
-                  double total = expenses.fold(0, (sum, item) => sum + (item['amount'] as num).toDouble());
-                  double budget = (widget.trip['budget'] as num).toDouble();
-                  return Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(children: [Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text("₱${currencyFormat.format(total)}", style: TextStyle(fontWeight: FontWeight.bold, color: total > budget ? Colors.red : Colors.black)), Text(" / ₱${currencyFormat.format(budget)}", style: const TextStyle(color: Colors.grey))]), const SizedBox(height: 10), LinearProgressIndicator(value: budget == 0 ? 0 : (total/budget).clamp(0, 1), color: total > budget ? Colors.red : Colors.green, backgroundColor: Colors.grey[200]), ExpansionTile(title: const Text("Details"), children: [...expenses.map((e) => ListTile(title: Text(e['title']), trailing: Row(mainAxisSize: MainAxisSize.min, children: [Text("₱${e['amount']}"), if (_canEdit) IconButton(icon: const Icon(Icons.close, size: 16), onPressed: () => _deleteGeneric('expenses', e['id']))]))), if (_canEdit) TextButton(onPressed: _addExpense, child: const Text("Add Expense"))])])));
-                },
+                stream: _membersStream,
+                builder: (context, membersSnapshot) {
+                  final int memberCount = (membersSnapshot.data?.length ?? 1); 
+                  
+                  return StreamBuilder<List<Map<String, dynamic>>>(
+                    stream: _expensesStream,
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData) return const LinearProgressIndicator();
+                      final expenses = snapshot.data!;
+                      double totalSpent = expenses.fold(0, (sum, item) => sum + (item['amount'] as num).toDouble());
+                      double totalBudget = (widget.trip['budget'] as num).toDouble();
+                      double budgetPerPerson = totalBudget / (memberCount > 0 ? memberCount : 1);
+
+                      return Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16), 
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween, 
+                                children: [
+                                  Text("₱${currencyFormat.format(totalSpent)}", style: TextStyle(fontWeight: FontWeight.bold, color: totalSpent > totalBudget ? Colors.red : Colors.black)), 
+                                  Text(" / ₱${currencyFormat.format(totalBudget)}", style: const TextStyle(color: Colors.grey))
+                                ]
+                              ),
+                              const SizedBox(height: 5),
+                              // 🚀 NEW: Per Person Calculation
+                              Text(
+                                "₱${currencyFormat.format(budgetPerPerson)} per person ($memberCount members)",
+                                style: TextStyle(fontSize: 12, color: Colors.blue.shade700, fontWeight: FontWeight.bold),
+                              ),
+                              const SizedBox(height: 10), 
+                              LinearProgressIndicator(value: totalBudget == 0 ? 0 : (totalSpent/totalBudget).clamp(0, 1), color: totalSpent > totalBudget ? Colors.red : Colors.green, backgroundColor: Colors.grey[200]), 
+                              ExpansionTile(
+                                title: const Text("Details"), 
+                                children: [...expenses.map((e) => ListTile(title: Text(e['title']), trailing: Row(mainAxisSize: MainAxisSize.min, children: [Text("₱${e['amount']}"), if (_canEdit) IconButton(icon: const Icon(Icons.close, size: 16), onPressed: () => _deleteGeneric('expenses', e['id']))]))), if (_canEdit) TextButton(onPressed: _addExpense, child: const Text("Add Expense"))]
+                              )
+                            ]
+                          )
+                        )
+                      );
+                    },
+                  );
+                }
               ),
               const SizedBox(height: 20),
 
-              // 👥 MEMBERS (Direct Delete)
               Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Members", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)), if (_canEdit) IconButton(onPressed: _addMember, icon: const Icon(Icons.person_add, color: Colors.blue))]),
               StreamBuilder<List<Map<String, dynamic>>>(
                 stream: _membersStream,
@@ -288,7 +321,6 @@ class _TripDetailsPageState extends State<TripDetailsPage> {
               ),
               const SizedBox(height: 20),
 
-              // 🎒 PACKING (Direct Delete)
               Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Packing", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)), if (_canEdit) IconButton(onPressed: _addPacking, icon: const Icon(Icons.add_circle, color: Colors.blue))]),
               StreamBuilder<List<Map<String, dynamic>>>(
                 stream: _packingStream,
