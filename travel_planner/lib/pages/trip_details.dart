@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -33,7 +32,6 @@ class _TripDetailsPageState extends State<TripDetailsPage> {
   Map<String, dynamic>? _weatherData;
   bool _isLoadingWeather = true;
   
-  // 🔒 PERMISSIONS
   bool _isOwner = false;
   bool _canEdit = false;
   String? _joinCode;
@@ -41,12 +39,13 @@ class _TripDetailsPageState extends State<TripDetailsPage> {
   @override
   void initState() {
     super.initState();
-    _checkPermissionsAndCode();
+    _checkPermissions();
     _refreshAllStreams();
     _fetchWeather();
+    _joinCode = widget.trip['join_code']; 
   }
 
-  Future<void> _checkPermissionsAndCode() async {
+  Future<void> _checkPermissions() async {
     final currentUser = Supabase.instance.client.auth.currentUser;
     if (currentUser == null) return;
     
@@ -71,29 +70,6 @@ class _TripDetailsPageState extends State<TripDetailsPage> {
       _isOwner = isOwner;
       _canEdit = isOwner || isEditor;
     });
-
-    // 🚀 FIX: Fetch the REAL code from the database, don't rely on the previous screen
-    if (_isOwner) {
-      final freshTripData = await Supabase.instance.client
-          .from('trips')
-          .select('join_code')
-          .eq('id', widget.trip['id'])
-          .maybeSingle();
-      
-      String? existingCode = freshTripData?['join_code'];
-
-      if (existingCode != null) {
-        // If code exists in DB, use it!
-        if (mounted) setState(() => _joinCode = existingCode);
-      } else {
-        // Only generate new if DB is truly empty
-        final newCode = "LAK-${Random().nextInt(9000) + 1000}";
-        try {
-          await Supabase.instance.client.from('trips').update({'join_code': newCode}).eq('id', widget.trip['id']);
-        } catch (_) {}
-        if (mounted) setState(() => _joinCode = newCode);
-      }
-    }
   }
 
   Stream<List<Map<String, dynamic>>> _getExpensesStream(int tripId) => Supabase.instance.client.from('expenses').stream(primaryKey: ['id']).eq('trip_id', tripId).order('created_at');
@@ -136,17 +112,10 @@ class _TripDetailsPageState extends State<TripDetailsPage> {
     final lat = widget.trip['latitude'];
     final lng = widget.trip['longitude'];
     if (lat == null || lng == null) return;
-    
-    // Official Google Maps Link
     final googleMapsUrl = Uri.parse('https://www.google.com/maps/dir/?api=1&destination=$lat,$lng');
-    
     try {
-      if (!await launchUrl(googleMapsUrl, mode: LaunchMode.externalApplication)) {
-        await launchUrl(googleMapsUrl);
-      }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Could not open maps.")));
-    }
+      if (!await launchUrl(googleMapsUrl, mode: LaunchMode.externalApplication)) await launchUrl(googleMapsUrl);
+    } catch (_) { if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Could not open maps."))); }
   }
 
   void _showShareDialog() {
@@ -187,10 +156,14 @@ class _TripDetailsPageState extends State<TripDetailsPage> {
     if (mounted) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(approve ? "User approved!" : "User rejected."))); _refreshAllStreams(); }
   }
 
-  Future<bool?> _showDeleteConfirm(String title) {
-    return showDialog<bool>(context: context, builder: (context) => AlertDialog(title: const Text("Confirm Delete"), content: Text("Delete this $title?"), actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("Cancel")), ElevatedButton(onPressed: () => Navigator.pop(context, true), style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white), child: const Text("Delete"))]));
+  // 🗑️ DELETED: _showDeleteConfirm is gone!
+
+  // Now deletes immediately
+  Future<void> _deleteGeneric(String table, int id) async { 
+    await Supabase.instance.client.from(table).delete().eq('id', id); 
+    if (mounted) _refreshAllStreams(); 
   }
-  Future<void> _deleteGeneric(String table, int id) async { await Supabase.instance.client.from(table).delete().eq('id', id); if (mounted) _refreshAllStreams(); }
+  
   Future<void> _addItemGeneric(String table, Map<String, dynamic> data) async { await Supabase.instance.client.from(table).insert(data); if (mounted) _refreshAllStreams(); }
 
   Future<void> _addExpense() async { final t=TextEditingController(); final a=TextEditingController(); await showDialog(context: context, builder: (context) => AlertDialog(title: const Text("Add Expense"), content: Column(mainAxisSize: MainAxisSize.min, children:[TextField(controller: t, decoration: const InputDecoration(labelText: "Item")), TextField(controller: a, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Cost"))]), actions:[TextButton(onPressed:()=>Navigator.pop(context), child:const Text("Cancel")), ElevatedButton(onPressed:() async {if(t.text.isNotEmpty && a.text.isNotEmpty) {await _addItemGeneric('expenses', {'trip_id': widget.trip['id'], 'title': t.text, 'amount': double.parse(a.text)}); Navigator.pop(context);}}, child: const Text("Add"))])); }
@@ -215,17 +188,8 @@ class _TripDetailsPageState extends State<TripDetailsPage> {
         backgroundColor: Colors.blue, 
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.share, color: Colors.white), 
-            onPressed: _showShareDialog, 
-            tooltip: "Share Trip Code"
-          ),
-          if (hasLocation) 
-            IconButton(
-              icon: const Icon(Icons.directions, color: Colors.white), 
-              onPressed: _openGoogleMaps, 
-              tooltip: "Get Directions"
-            )
+          IconButton(icon: const Icon(Icons.share, color: Colors.white), onPressed: _showShareDialog, tooltip: "Share Trip Code"),
+          if (hasLocation) IconButton(icon: const Icon(Icons.directions, color: Colors.white), onPressed: _openGoogleMaps, tooltip: "Get Directions")
         ],
       ),
       body: WebContainer(
@@ -267,16 +231,18 @@ class _TripDetailsPageState extends State<TripDetailsPage> {
                 Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(gradient: LinearGradient(colors: [Colors.blue.shade400, Colors.blue.shade200]), borderRadius: BorderRadius.circular(16)), child: Row(children: [Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text("${_weatherData!['main']['temp'].toStringAsFixed(1)}°C", style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white)), Text(_weatherData!['weather'][0]['description'].toUpperCase(), style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold))]), const Spacer(), Icon(Icons.wb_sunny, size: 48, color: Colors.white)])),
               if (hasLocation) const SizedBox(height: 20),
 
+              // 📝 NOTES (Direct Delete)
               Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Travel Notes", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)), if (_canEdit) IconButton(onPressed: _addNote, icon: const Icon(Icons.note_add, color: Colors.blue))]),
               StreamBuilder<List<Map<String, dynamic>>>(
                 stream: _notesStream,
                 builder: (context, snapshot) {
                   if (!snapshot.hasData || snapshot.data!.isEmpty) return const Text("No notes yet.", style: TextStyle(color: Colors.grey));
-                  return Column(children: snapshot.data!.map((note) => Card(margin: const EdgeInsets.only(bottom: 8), child: ListTile(title: Text(note['content']), trailing: _canEdit ? IconButton(icon: const Icon(Icons.delete_outline, size: 20, color: Colors.grey), onPressed: () async { if(await _showDeleteConfirm('note') == true) _deleteGeneric('trip_notes', note['id']); }) : null))).toList());
+                  return Column(children: snapshot.data!.map((note) => Card(margin: const EdgeInsets.only(bottom: 8), child: ListTile(title: Text(note['content']), trailing: _canEdit ? IconButton(icon: const Icon(Icons.delete_outline, size: 20, color: Colors.grey), onPressed: () => _deleteGeneric('trip_notes', note['id'])) : null))).toList());
                 },
               ),
               const SizedBox(height: 20),
 
+              // 💰 BUDGET (Direct Delete)
               const Text("Budget", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
               StreamBuilder<List<Map<String, dynamic>>>(
                 stream: _expensesStream,
@@ -285,11 +251,12 @@ class _TripDetailsPageState extends State<TripDetailsPage> {
                   final expenses = snapshot.data!;
                   double total = expenses.fold(0, (sum, item) => sum + (item['amount'] as num).toDouble());
                   double budget = (widget.trip['budget'] as num).toDouble();
-                  return Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(children: [Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text("₱${currencyFormat.format(total)}", style: TextStyle(fontWeight: FontWeight.bold, color: total > budget ? Colors.red : Colors.black)), Text(" / ₱${currencyFormat.format(budget)}", style: const TextStyle(color: Colors.grey))]), const SizedBox(height: 10), LinearProgressIndicator(value: budget == 0 ? 0 : (total/budget).clamp(0, 1), color: total > budget ? Colors.red : Colors.green, backgroundColor: Colors.grey[200]), ExpansionTile(title: const Text("Details"), children: [...expenses.map((e) => ListTile(title: Text(e['title']), trailing: Row(mainAxisSize: MainAxisSize.min, children: [Text("₱${e['amount']}"), if (_canEdit) IconButton(icon: const Icon(Icons.close, size: 16), onPressed: () async { if(await _showDeleteConfirm('expense') == true) _deleteGeneric('expenses', e['id']); })]))), if (_canEdit) TextButton(onPressed: _addExpense, child: const Text("Add Expense"))])])));
+                  return Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(children: [Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text("₱${currencyFormat.format(total)}", style: TextStyle(fontWeight: FontWeight.bold, color: total > budget ? Colors.red : Colors.black)), Text(" / ₱${currencyFormat.format(budget)}", style: const TextStyle(color: Colors.grey))]), const SizedBox(height: 10), LinearProgressIndicator(value: budget == 0 ? 0 : (total/budget).clamp(0, 1), color: total > budget ? Colors.red : Colors.green, backgroundColor: Colors.grey[200]), ExpansionTile(title: const Text("Details"), children: [...expenses.map((e) => ListTile(title: Text(e['title']), trailing: Row(mainAxisSize: MainAxisSize.min, children: [Text("₱${e['amount']}"), if (_canEdit) IconButton(icon: const Icon(Icons.close, size: 16), onPressed: () => _deleteGeneric('expenses', e['id']))]))), if (_canEdit) TextButton(onPressed: _addExpense, child: const Text("Add Expense"))])])));
                 },
               ),
               const SizedBox(height: 20),
 
+              // 👥 MEMBERS (Direct Delete)
               Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Members", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)), if (_canEdit) IconButton(onPressed: _addMember, icon: const Icon(Icons.person_add, color: Colors.blue))]),
               StreamBuilder<List<Map<String, dynamic>>>(
                 stream: _membersStream,
@@ -312,7 +279,7 @@ class _TripDetailsPageState extends State<TripDetailsPage> {
                                onPressed: () => _toggleEditorPermission(m['email']),
                              ),
                           if (_canEdit) 
-                            IconButton(icon: const Icon(Icons.delete_outline, color: Colors.grey), onPressed: () async { if(await _showDeleteConfirm('member') == true) _deleteGeneric('trip_members', m['id']); }),
+                            IconButton(icon: const Icon(Icons.delete_outline, color: Colors.grey), onPressed: () => _deleteGeneric('trip_members', m['id'])),
                         ],
                       ),
                     );
@@ -321,12 +288,13 @@ class _TripDetailsPageState extends State<TripDetailsPage> {
               ),
               const SizedBox(height: 20),
 
+              // 🎒 PACKING (Direct Delete)
               Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Packing", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)), if (_canEdit) IconButton(onPressed: _addPacking, icon: const Icon(Icons.add_circle, color: Colors.blue))]),
               StreamBuilder<List<Map<String, dynamic>>>(
                 stream: _packingStream,
                 builder: (context, snapshot) {
                   if (!snapshot.hasData || snapshot.data!.isEmpty) return const Text("Empty list.", style: TextStyle(color: Colors.grey));
-                  return Card(child: Column(children: snapshot.data!.map((item) => CheckboxListTile(title: Text(item['item_name'], style: TextStyle(decoration: item['is_checked'] ? TextDecoration.lineThrough : null, color: Colors.black)), value: item['is_checked'], onChanged: _canEdit ? (val) async { await Supabase.instance.client.from('packing_items').update({'is_checked': !item['is_checked']}).eq('id', item['id']); } : null, secondary: _canEdit ? IconButton(icon: const Icon(Icons.delete_outline), onPressed: () async { if(await _showDeleteConfirm('item') == true) _deleteGeneric('packing_items', item['id']); }) : null)).toList()));
+                  return Card(child: Column(children: snapshot.data!.map((item) => CheckboxListTile(title: Text(item['item_name'], style: TextStyle(decoration: item['is_checked'] ? TextDecoration.lineThrough : null, color: Colors.black)), value: item['is_checked'], onChanged: _canEdit ? (val) async { await Supabase.instance.client.from('packing_items').update({'is_checked': !item['is_checked']}).eq('id', item['id']); } : null, secondary: _canEdit ? IconButton(icon: const Icon(Icons.delete_outline), onPressed: () => _deleteGeneric('packing_items', item['id'])) : null)).toList()));
                 },
               ),
               const SizedBox(height: 50),
