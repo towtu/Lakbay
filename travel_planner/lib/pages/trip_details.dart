@@ -387,7 +387,7 @@ class _TripDetailsPageState extends State<TripDetailsPage> {
               const SizedBox(height: 20),
 
               // --- 👥 MEMBERS & AMOT ---
-              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Members & Amot", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)), IconButton(onPressed: _addMember, icon: const Icon(Icons.person_add, color: Colors.blue))]),
+              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Members", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)), IconButton(onPressed: _addMember, icon: const Icon(Icons.person_add, color: Colors.blue))]),
               StreamBuilder<List<Map<String, dynamic>>>(
                 stream: _membersStream,
                 builder: (context, snapshot) {
