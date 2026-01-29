@@ -27,10 +27,10 @@ class _HomePageState extends State<HomePage> {
     _tripsFuture = _fetchTrips();
   }
 
-  // 🔌 SMART FETCH: Sync Offline Queue -> Try Internet -> Fallback to Cache
+  // 🔌 SMART FETCH: Owned + Shared + Offline Sync
   Future<List<Map<String, dynamic>>> _fetchTrips() async {
     final prefs = await SharedPreferences.getInstance();
-    final userId = Supabase.instance.client.auth.currentUser!.id;
+    final user = Supabase.instance.client.auth.currentUser!;
     
     List<Map<String, dynamic>> combinedTrips = [];
 
@@ -38,7 +38,7 @@ class _HomePageState extends State<HomePage> {
     List<String> offlineQueue = prefs.getStringList('offline_queue') ?? [];
     List<Map<String, dynamic>> offlineTrips = offlineQueue.map((e) => json.decode(e) as Map<String, dynamic>).toList();
 
-    // --- STEP 2: TRY SYNCING (If Internet Available) ---
+    // --- STEP 2: TRY SYNCING OFFLINE TRIPS ---
     if (offlineTrips.isNotEmpty) {
       try {
         for (var trip in offlineTrips) {
@@ -50,27 +50,48 @@ class _HomePageState extends State<HomePage> {
         offlineTrips.clear(); 
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Synced offline trips to cloud! ☁️"), backgroundColor: Colors.green));
       } catch (e) {
-        // If sync fails, we keep 'offlineTrips' to show the user
-        // We silently fail here so the app doesn't crash
+        // Silently fail if sync error, keep trips in queue
       }
     }
 
-    // --- STEP 3: FETCH ONLINE TRIPS ---
     try {
-      final response = await Supabase.instance.client
+      // --- STEP 3: FETCH "OWNED" TRIPS ---
+      final ownedResponse = await Supabase.instance.client
           .from('trips')
           .select()
-          .or('user_id.eq.$userId,join_code.neq.null')
+          .eq('user_id', user.id)
           .order('start_date', ascending: true);
+
+      // --- STEP 4: FETCH "SHARED" TRIPS ---
+      // We ask for rows in 'shared_trips' that match our email, and expand the 'trips' data
+      final sharedResponse = await Supabase.instance.client
+          .from('shared_trips')
+          .select('trips(*)') 
+          .eq('shared_with_email', user.email!);
+
+      // Extract the actual trip data from the nested structure
+      final List<Map<String, dynamic>> sharedTrips = (sharedResponse as List)
+          .map((item) => item['trips'] as Map<String, dynamic>)
+          .toList();
+      
+      // Combine Owned + Shared
+      final allOnlineTrips = [...ownedResponse, ...sharedTrips];
+
+      // Sort combined list by Date
+      allOnlineTrips.sort((a, b) {
+        if (a['start_date'] == null) return 1;
+        if (b['start_date'] == null) return -1;
+        return a['start_date'].compareTo(b['start_date']);
+      });
       
       // Save successful load to cache
-      await prefs.setString('cached_trips', json.encode(response));
+      await prefs.setString('cached_trips', json.encode(allOnlineTrips));
       
-      combinedTrips.addAll(List<Map<String, dynamic>>.from(response));
+      combinedTrips.addAll(List<Map<String, dynamic>>.from(allOnlineTrips));
       if (mounted) setState(() => _isOffline = false);
 
     } catch (e) {
-      // --- STEP 4: FALLBACK TO CACHE (If Internet Fails) ---
+      // --- STEP 5: FALLBACK TO CACHE (If Internet Fails) ---
       if (prefs.containsKey('cached_trips')) {
         final cachedData = json.decode(prefs.getString('cached_trips')!);
         combinedTrips.addAll(List<Map<String, dynamic>>.from(cachedData));
@@ -93,73 +114,94 @@ class _HomePageState extends State<HomePage> {
     if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const LoginPage()));
   }
 
-  // --- 🔗 JOIN TRIP LOGIC ---
+  // --- 🔗 SMART JOIN DIALOG ---
   Future<void> _joinTripDialog() async {
     final codeController = TextEditingController();
+    
+    // Use StatefulBuilder so we can update the dialog internals (Loading/Error text)
     await showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Join a Trip"),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text("Enter the Trip Code shared by the owner."),
-            const SizedBox(height: 10),
-            TextField(
-              controller: codeController,
-              decoration: const InputDecoration(labelText: "Trip Code (e.g., LAK-123)", border: OutlineInputBorder()),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
-          ElevatedButton(
-            onPressed: () => _submitJoinRequest(codeController.text.trim()),
-            child: const Text("Request to Join"),
-          ),
-        ],
-      ),
+      builder: (context) {
+        bool isLoading = false;
+        String? errorMessage;
+
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: const Text("Join a Trip"),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text("Enter the Trip Code shared by the owner."),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: codeController,
+                    decoration: InputDecoration(
+                      labelText: "Trip Code (e.g., LAK-123)",
+                      border: const OutlineInputBorder(),
+                      errorText: errorMessage, // 🛑 Shows error here
+                    ),
+                    onChanged: (_) {
+                      if (errorMessage != null) setState(() => errorMessage = null);
+                    },
+                  ),
+                  if (isLoading) const Padding(padding: EdgeInsets.only(top: 15), child: CircularProgressIndicator())
+                ],
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+                ElevatedButton(
+                  onPressed: isLoading ? null : () async {
+                    setState(() { isLoading = true; errorMessage = null; });
+                    final code = codeController.text.trim();
+                    
+                    if (code.isEmpty) {
+                      setState(() => isLoading = false);
+                      return;
+                    }
+
+                    try {
+                      // 1. CALL KEYHOLE FUNCTION
+                      final tripId = await Supabase.instance.client.rpc('get_trip_id_by_code', params: {'code_text': code});
+
+                      if (tripId == null) {
+                        setState(() { errorMessage = "Invalid Code."; isLoading = false; });
+                        return;
+                      }
+
+                      // 2. CHECK DUPLICATES
+                      final user = Supabase.instance.client.auth.currentUser!;
+                      final existing = await Supabase.instance.client.from('join_requests').select().eq('trip_id', tripId).eq('user_id', user.id).maybeSingle();
+                      
+                      if (existing != null) {
+                         setState(() { errorMessage = "Already requested (Status: ${existing['status']})"; isLoading = false; });
+                         return;
+                      }
+
+                      // 3. SEND REQUEST
+                      await Supabase.instance.client.from('join_requests').insert({
+                        'trip_id': tripId,
+                        'user_id': user.id,
+                        'email': user.email,
+                        'status': 'pending'
+                      });
+
+                      if (context.mounted) {
+                        Navigator.pop(context);
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Request sent! Ask owner to approve."), backgroundColor: Colors.green));
+                      }
+                    } catch (e) {
+                      setState(() { errorMessage = "Error: $e"; isLoading = false; });
+                    }
+                  },
+                  child: const Text("Request to Join"),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
-  }
-
-  // 🚀 FIXED: Smart Join with Trim & Keyhole Function
-  Future<void> _submitJoinRequest(String code) async {
-    // 1. CLEAN INPUT
-    String cleanCode = code.trim();
-    if (cleanCode.isEmpty) return;
-    Navigator.pop(context); 
-
-    try {
-      // 2. CALL THE "KEYHOLE" FUNCTION
-      final tripId = await Supabase.instance.client.rpc('get_trip_id_by_code', params: {'code_text': cleanCode});
-
-      if (tripId == null) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Invalid Code. Trip not found.")));
-        return;
-      }
-
-      // 3. CHECK DUPLICATES
-      final user = Supabase.instance.client.auth.currentUser!;
-      final existing = await Supabase.instance.client.from('join_requests').select().eq('trip_id', tripId).eq('user_id', user.id).maybeSingle();
-      
-      if (existing != null) {
-         if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("You have already sent a request (Status: ${existing['status']}).")));
-         return;
-      }
-
-      // 4. SEND REQUEST
-      await Supabase.instance.client.from('join_requests').insert({
-        'trip_id': tripId,
-        'user_id': user.id,
-        'email': user.email,
-        'status': 'pending'
-      });
-
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Request sent! Ask the owner to approve you."), backgroundColor: Colors.green));
-
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red));
-    }
   }
 
   Future<void> _deleteTrip(int id) async {
@@ -179,8 +221,8 @@ class _HomePageState extends State<HomePage> {
   Widget _buildTripCard(Map<String, dynamic> trip) {
     // Check if offline (has negative ID)
     final bool isOfflineTrip = (trip['id'] is int) && (trip['id'] as int) < 0;
-    
     final bool isOwner = trip['user_id'] == Supabase.instance.client.auth.currentUser?.id;
+    
     final String? startDateStr = trip['start_date'];
     String subtitle = "Budget: ₱${currencyFormat.format(trip['budget'])}";
     if (startDateStr != null) {
@@ -193,17 +235,16 @@ class _HomePageState extends State<HomePage> {
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
         onTap: () async {
-          // If offline, we still allow clicking, but details page handles missing data gracefully
           await Navigator.push(context, MaterialPageRoute(builder: (context) => TripDetailsPage(trip: trip)));
-          if (!isOfflineTrip) _refreshTrips(); // Refresh on return if online
+          if (!isOfflineTrip) _refreshTrips();
         },
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
               height: 100,
-              decoration: BoxDecoration(color: Colors.blue.shade100, borderRadius: const BorderRadius.vertical(top: Radius.circular(16))),
-              child: Center(child: Icon(Icons.location_city, size: 40, color: Colors.blue.shade300)),
+              decoration: BoxDecoration(color: isOwner ? Colors.blue.shade100 : Colors.green.shade100, borderRadius: const BorderRadius.vertical(top: Radius.circular(16))),
+              child: Center(child: Icon(isOwner ? Icons.location_city : Icons.flight_takeoff, size: 40, color: isOwner ? Colors.blue.shade300 : Colors.green.shade300)),
             ),
             Padding(
               padding: const EdgeInsets.all(12),
@@ -222,7 +263,7 @@ class _HomePageState extends State<HomePage> {
                     if (!isOfflineTrip)
                       isOwner 
                         ? IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20), onPressed: () => _deleteTrip(trip['id'])) 
-                        : const Icon(Icons.people, color: Colors.green, size: 20),
+                        : const Tooltip(message: "Shared Trip", child: Icon(Icons.people, color: Colors.green, size: 20)),
                   ]),
                   const SizedBox(height: 8),
                   Text(subtitle, style: TextStyle(color: Colors.grey[700], height: 1.4)),
@@ -266,7 +307,6 @@ class _HomePageState extends State<HomePage> {
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
             
-            // If error AND offline, show message
             if (snapshot.hasError && !_isOffline) return Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [const Icon(Icons.wifi_off, size: 50, color: Colors.grey), const SizedBox(height: 10), Text("Network Error.\n${snapshot.error}", textAlign: TextAlign.center)]));
             
             final trips = snapshot.data ?? [];
