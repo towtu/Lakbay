@@ -9,6 +9,7 @@ import 'login.dart';
 import 'add_trip.dart';
 import 'calendar_page.dart';
 import 'trip_details.dart';
+import 'profile_page.dart'; // 👈 Import Profile Page
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -282,6 +283,12 @@ class _HomePageState extends State<HomePage> {
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
         centerTitle: true,
+        // 👤 PROFILE BUTTON
+        leading: IconButton(
+          icon: const Icon(Icons.person, color: Colors.black),
+          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const ProfilePage())),
+          tooltip: "Profile",
+        ),
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -295,9 +302,8 @@ class _HomePageState extends State<HomePage> {
         ),
         elevation: 0,
         backgroundColor: Colors.white,
-        iconTheme: const IconThemeData(color: Colors.black),
         actions: [
-          IconButton(onPressed: _logout, icon: const Icon(Icons.logout)),
+          IconButton(onPressed: _logout, icon: const Icon(Icons.logout, color: Colors.black)),
         ],
       ),
       body: RefreshIndicator(
@@ -340,7 +346,7 @@ class _HomePageState extends State<HomePage> {
                   ),
                   const SizedBox(height: 30),
                   
-                  const Text("Your Trips", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                  const Align(alignment: Alignment.centerLeft, child: Text("Your Trips", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold))),
                   const SizedBox(height: 15),
 
                   if (trips.isEmpty) const Center(child: Padding(padding: EdgeInsets.all(40), child: Text("No trips yet. Tap + to start planning!", style: TextStyle(color: Colors.grey, fontSize: 16)))),

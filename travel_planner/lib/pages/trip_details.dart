@@ -72,9 +72,11 @@ class _TripDetailsPageState extends State<TripDetailsPage> {
     });
   }
 
+  // ⚠️ USE NEW VIEW FOR MEMBERS
+  Stream<List<Map<String, dynamic>>> _getMembersStream(int tripId) => Supabase.instance.client.from('trip_members_with_permissions').stream(primaryKey: ['id']).eq('trip_id', tripId).order('name');
+  
   Stream<List<Map<String, dynamic>>> _getExpensesStream(int tripId) => Supabase.instance.client.from('expenses').stream(primaryKey: ['id']).eq('trip_id', tripId).order('created_at');
   Stream<List<Map<String, dynamic>>> _getPackingStream(int tripId) => Supabase.instance.client.from('packing_items').stream(primaryKey: ['id']).eq('trip_id', tripId).order('created_at');
-  Stream<List<Map<String, dynamic>>> _getMembersStream(int tripId) => Supabase.instance.client.from('trip_members').stream(primaryKey: ['id']).eq('trip_id', tripId).order('created_at');
   Stream<List<Map<String, dynamic>>> _getNotesStream(int tripId) => Supabase.instance.client.from('trip_notes').stream(primaryKey: ['id']).eq('trip_id', tripId).order('created_at');
   Stream<List<Map<String, dynamic>>> _getRequestsStream(int tripId) => Supabase.instance.client.from('join_requests').stream(primaryKey: ['id']).eq('trip_id', tripId).order('created_at');
 
@@ -147,11 +149,22 @@ class _TripDetailsPageState extends State<TripDetailsPage> {
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("User is now ${newPerm == 'edit' ? 'an EDITOR' : 'VIEW ONLY'}")));
   }
 
+  // 🚀 UPDATED: Fetch Nickname on Approval
   Future<void> _handleRequest(Map<String, dynamic> request, bool approve) async {
     await Supabase.instance.client.from('join_requests').update({'status': approve ? 'approved' : 'rejected'}).eq('id', request['id']);
     if (approve) {
-      await Supabase.instance.client.from('shared_trips').insert({'trip_id': widget.trip['id'], 'shared_with_email': request['email'], 'permission': 'view'}); 
-      await Supabase.instance.client.from('trip_members').insert({'trip_id': widget.trip['id'], 'name': request['email'].split('@')[0], 'email': request['email'], 'is_paid': false});
+      final String userEmail = request['email'];
+      final String userId = request['user_id'];
+      
+      // 1. Get Nickname from Profile
+      String displayName = userEmail.split('@')[0]; // Default
+      final profile = await Supabase.instance.client.from('profiles').select('nickname').eq('id', userId).maybeSingle();
+      if (profile != null && profile['nickname'] != null && profile['nickname'].toString().isNotEmpty) {
+        displayName = profile['nickname'];
+      }
+
+      await Supabase.instance.client.from('shared_trips').insert({'trip_id': widget.trip['id'], 'shared_with_email': userEmail, 'permission': 'view'}); 
+      await Supabase.instance.client.from('trip_members').insert({'trip_id': widget.trip['id'], 'name': displayName, 'email': userEmail, 'is_paid': false});
     }
     if (mounted) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(approve ? "User approved!" : "User rejected."))); _refreshAllStreams(); }
   }
@@ -237,7 +250,6 @@ class _TripDetailsPageState extends State<TripDetailsPage> {
               ),
               const SizedBox(height: 20),
 
-              // 💰 BUDGET SECTION (Updated with Per Person Split)
               const Text("Budget", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
               
               // We nest Members stream INSIDE the Budget area to calculate split
@@ -269,7 +281,6 @@ class _TripDetailsPageState extends State<TripDetailsPage> {
                                 ]
                               ),
                               const SizedBox(height: 5),
-                              // 🚀 NEW: Per Person Calculation
                               Text(
                                 "₱${currencyFormat.format(budgetPerPerson)} per person ($memberCount members)",
                                 style: TextStyle(fontSize: 12, color: Colors.blue.shade700, fontWeight: FontWeight.bold),
@@ -297,6 +308,10 @@ class _TripDetailsPageState extends State<TripDetailsPage> {
                   if (!snapshot.hasData || snapshot.data!.isEmpty) return const Text("No members.", style: TextStyle(color: Colors.grey));
                   return Card(child: Column(children: snapshot.data!.map((m) {
                     final bool hasEmail = m['email'] != null;
+                    // 🚀 NEW: Get Visual Permission
+                    final String permission = m['permission'] ?? 'view'; 
+                    final bool isEditor = permission == 'edit';
+
                     return CheckboxListTile(
                       title: Text(m['name']),
                       subtitle: Text(m['is_paid'] ? "Paid" : "Not Paid", style: TextStyle(color: m['is_paid'] ? Colors.green : Colors.red)),
@@ -307,8 +322,8 @@ class _TripDetailsPageState extends State<TripDetailsPage> {
                         children: [
                           if (_isOwner && hasEmail) 
                              IconButton(
-                               icon: const Icon(Icons.vpn_key, color: Colors.orange, size: 20),
-                               tooltip: "Toggle Edit Permission",
+                               icon: Icon(Icons.vpn_key, color: isEditor ? Colors.amber : Colors.grey, size: 20),
+                               tooltip: isEditor ? "Demote to Viewer" : "Promote to Editor",
                                onPressed: () => _toggleEditorPermission(m['email']),
                              ),
                           if (_canEdit) 
