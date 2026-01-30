@@ -32,32 +32,54 @@ class _AddTripPageState extends State<AddTripPage> {
   DateTime? _endDate;
   final DateFormat _dateFormat = DateFormat('MMM dd, yyyy');
 
+  // 🧹 CLEANUP: Cancel timer when screen closes
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _destinationController.dispose();
+    _budgetController.dispose();
+    super.dispose();
+  }
+
   void _onSearchChanged(String query) {
     if (_debounce?.isActive ?? false) _debounce!.cancel();
     _debounce = Timer(const Duration(milliseconds: 1000), () {
-      if (query.length > 2) _fetchSuggestions(query);
-      else setState(() => _suggestions = []);
+      if (mounted) { // 🔒 Safety Check
+        if (query.length > 2) {
+          _fetchSuggestions(query);
+        } else {
+          setState(() => _suggestions = []);
+        }
+      }
     });
   }
 
   Future<void> _fetchSuggestions(String query) async {
+    if (!mounted) return; // 🔒 Safety Check
     setState(() => _isLoadingSuggestions = true);
+    
     try {
       final url = Uri.parse('https://nominatim.openstreetmap.org/search?q=$query&format=json&addressdetails=1&limit=5');
       final response = await http.get(url, headers: {'User-Agent': 'LakbayApp/1.0'});
+      
+      if (!mounted) return; // 🔒 Safety Check after await
+
       if (response.statusCode == 200) {
         setState(() {
           _suggestions = json.decode(response.body);
           _isLoadingSuggestions = false;
         });
       }
-    } catch (e) { setState(() => _isLoadingSuggestions = false); }
+    } catch (e) { 
+      if (mounted) setState(() => _isLoadingSuggestions = false); 
+    }
   }
 
   void _selectSuggestion(dynamic suggestion) {
     final lat = double.parse(suggestion['lat']);
     final lon = double.parse(suggestion['lon']);
     final name = suggestion['display_name'].split(',')[0];
+    
     setState(() {
       _selectedLocation = LatLng(lat, lon);
       _destinationController.text = name;
@@ -72,13 +94,19 @@ class _AddTripPageState extends State<AddTripPage> {
     try {
       final url = Uri.parse('https://nominatim.openstreetmap.org/reverse?format=json&lat=${pos.latitude}&lon=${pos.longitude}&zoom=10');
       final response = await http.get(url, headers: {'User-Agent': 'LakbayApp/1.0'});
+      
+      if (!mounted) return; // 🔒 Safety Check after await
+
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         if (data['display_name'] != null) {
           String name = data['address']['city'] ?? data['address']['town'] ?? data['address']['village'] ?? "";
           String country = data['address']['country'] ?? "";
-          if (name.isEmpty) _destinationController.text = data['display_name'].split(',')[0];
-          else _destinationController.text = "$name, $country";
+          
+          if (mounted) {
+            if (name.isEmpty) _destinationController.text = data['display_name'].split(',')[0];
+            else _destinationController.text = "$name, $country";
+          }
         }
       }
     } catch (_) {}
@@ -91,7 +119,7 @@ class _AddTripPageState extends State<AddTripPage> {
       firstDate: DateTime.now(),
       lastDate: DateTime(2100),
     );
-    if (picked != null) {
+    if (picked != null && mounted) {
       setState(() {
         if (isStart) {
           _startDate = picked;
@@ -125,24 +153,13 @@ class _AddTripPageState extends State<AddTripPage> {
     };
 
     try {
-      // 🚀 1. INSERT TRIP & GET ID BACK (.select())
-      final data = await Supabase.instance.client
+      await Supabase.instance.client
           .from('trips')
           .insert(newTrip)
-          .select() // <--- This returns the new row!
           .timeout(const Duration(seconds: 3));
 
-      final newTripId = data[0]['id'];
-
-      // 🚀 2. AUTO-ADD CREATOR AS MEMBER
-      await Supabase.instance.client.from('trip_members').insert({
-        'trip_id': newTripId,
-        'name': 'Me (Owner)', // Or pull their real name if you have it
-        'email': user.email,
-        'is_paid': false
-      });
-      
       if (mounted) Navigator.pop(context);
+
     } catch (e) {
       // Offline fallback
       final prefs = await SharedPreferences.getInstance();
@@ -150,6 +167,7 @@ class _AddTripPageState extends State<AddTripPage> {
       newTrip['id'] = -1 * (Random().nextInt(10000));
       offlineTrips.add(json.encode(newTrip));
       await prefs.setStringList('offline_queue', offlineTrips);
+      
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("No Internet. Trip saved locally!"), backgroundColor: Colors.orange));

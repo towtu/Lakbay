@@ -9,7 +9,7 @@ import 'login.dart';
 import 'add_trip.dart';
 import 'calendar_page.dart';
 import 'trip_details.dart';
-import 'profile_page.dart'; // 👈 Import Profile Page
+import 'profile_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -64,7 +64,6 @@ class _HomePageState extends State<HomePage> {
           .order('start_date', ascending: true);
 
       // --- STEP 4: FETCH "SHARED" TRIPS ---
-      // We ask for rows in 'shared_trips' that match our email, and expand the 'trips' data
       final sharedResponse = await Supabase.instance.client
           .from('shared_trips')
           .select('trips(*)') 
@@ -119,7 +118,6 @@ class _HomePageState extends State<HomePage> {
   Future<void> _joinTripDialog() async {
     final codeController = TextEditingController();
     
-    // Use StatefulBuilder so we can update the dialog internals (Loading/Error text)
     await showDialog(
       context: context,
       builder: (context) {
@@ -140,7 +138,7 @@ class _HomePageState extends State<HomePage> {
                     decoration: InputDecoration(
                       labelText: "Trip Code (e.g., LAK-123)",
                       border: const OutlineInputBorder(),
-                      errorText: errorMessage, // 🛑 Shows error here
+                      errorText: errorMessage,
                     ),
                     onChanged: (_) {
                       if (errorMessage != null) setState(() => errorMessage = null);
@@ -162,7 +160,6 @@ class _HomePageState extends State<HomePage> {
                     }
 
                     try {
-                      // 1. CALL KEYHOLE FUNCTION
                       final tripId = await Supabase.instance.client.rpc('get_trip_id_by_code', params: {'code_text': code});
 
                       if (tripId == null) {
@@ -170,7 +167,6 @@ class _HomePageState extends State<HomePage> {
                         return;
                       }
 
-                      // 2. CHECK DUPLICATES
                       final user = Supabase.instance.client.auth.currentUser!;
                       final existing = await Supabase.instance.client.from('join_requests').select().eq('trip_id', tripId).eq('user_id', user.id).maybeSingle();
                       
@@ -179,7 +175,6 @@ class _HomePageState extends State<HomePage> {
                          return;
                       }
 
-                      // 3. SEND REQUEST
                       await Supabase.instance.client.from('join_requests').insert({
                         'trip_id': tripId,
                         'user_id': user.id,
@@ -205,14 +200,41 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  // 🛑 DELETE TRIP WITH CONFIRMATION
   Future<void> _deleteTrip(int id) async {
     if (_isOffline) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Cannot delete while offline.")));
       return;
     }
+
+    // 1. Show Confirmation Dialog
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Delete Trip?"),
+        content: const Text("This action cannot be undone."),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false), // Cancel
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(context, true), // Confirm
+            child: const Text("Delete"),
+          ),
+        ],
+      ),
+    );
+
+    // 2. If user canceled, stop here
+    if (confirmed != true) return;
+
+    // 3. Proceed with deletion
     try {
       await Supabase.instance.client.from('trips').delete().eq('id', id);
       _refreshTrips();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Trip deleted successfully.")));
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Only the owner can delete this trip.")));
     }
@@ -283,7 +305,6 @@ class _HomePageState extends State<HomePage> {
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
         centerTitle: true,
-        // 👤 PROFILE BUTTON
         leading: IconButton(
           icon: const Icon(Icons.person, color: Colors.black),
           onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const ProfilePage())),

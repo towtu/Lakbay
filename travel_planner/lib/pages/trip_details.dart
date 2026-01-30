@@ -18,336 +18,454 @@ class TripDetailsPage extends StatefulWidget {
   State<TripDetailsPage> createState() => _TripDetailsPageState();
 }
 
-class _TripDetailsPageState extends State<TripDetailsPage> {
-  final String _weatherApiKey = '7893495de6bf87dc1c782d309dc77ea5';
+class _TripDetailsPageState extends State<TripDetailsPage> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
   final currencyFormat = NumberFormat("#,##0", "en_US");
   final dateFormat = DateFormat('MMM dd, yyyy');
+  final timeFormat = DateFormat('h:mm a');
   
+  // Streams
   late Stream<List<Map<String, dynamic>>> _expensesStream;
   late Stream<List<Map<String, dynamic>>> _packingStream;
   late Stream<List<Map<String, dynamic>>> _membersStream;
   late Stream<List<Map<String, dynamic>>> _notesStream;
-  late Stream<List<Map<String, dynamic>>> _requestsStream;
+  late Stream<List<Map<String, dynamic>>> _itineraryStream;
+  late Stream<List<Map<String, dynamic>>> _pollsStream;
 
+  // State
   Map<String, dynamic>? _weatherData;
-  bool _isLoadingWeather = true;
-  
   bool _isOwner = false;
   bool _canEdit = false;
   String? _joinCode;
+  String? _myEmail;
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 4, vsync: this);
+    _myEmail = Supabase.instance.client.auth.currentUser?.email;
     _checkPermissions();
     _refreshAllStreams();
     _fetchWeather();
-    _joinCode = widget.trip['join_code']; 
+    _joinCode = widget.trip['join_code'];
   }
 
+  // --- 🛠️ SETUP & HELPERS ---
+  
   Future<void> _checkPermissions() async {
-    final currentUser = Supabase.instance.client.auth.currentUser;
-    if (currentUser == null) return;
-    
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
     final tripOwnerId = widget.trip['user_id'];
-    bool isOwner = currentUser.id == tripOwnerId;
-
+    bool isOwner = user.id == tripOwnerId;
     bool isEditor = false;
     if (!isOwner) {
-      final response = await Supabase.instance.client
-          .from('shared_trips')
-          .select('permission')
-          .eq('trip_id', widget.trip['id'])
-          .eq('shared_with_email', currentUser.email!)
-          .maybeSingle();
-      
-      if (response != null && response['permission'] == 'edit') {
-        isEditor = true;
-      }
+      final response = await Supabase.instance.client.from('shared_trips').select('permission').eq('trip_id', widget.trip['id']).eq('shared_with_email', user.email!).maybeSingle();
+      if (response != null && response['permission'] == 'edit') isEditor = true;
     }
-
-    setState(() {
-      _isOwner = isOwner;
-      _canEdit = isOwner || isEditor;
-    });
+    if (mounted) setState(() { _isOwner = isOwner; _canEdit = isOwner || isEditor; });
   }
 
-  // ⚠️ USE NEW VIEW FOR MEMBERS
-  Stream<List<Map<String, dynamic>>> _getMembersStream(int tripId) => Supabase.instance.client.from('trip_members_with_permissions').stream(primaryKey: ['id']).eq('trip_id', tripId).order('name');
-  
-  Stream<List<Map<String, dynamic>>> _getExpensesStream(int tripId) => Supabase.instance.client.from('expenses').stream(primaryKey: ['id']).eq('trip_id', tripId).order('created_at');
-  Stream<List<Map<String, dynamic>>> _getPackingStream(int tripId) => Supabase.instance.client.from('packing_items').stream(primaryKey: ['id']).eq('trip_id', tripId).order('created_at');
-  Stream<List<Map<String, dynamic>>> _getNotesStream(int tripId) => Supabase.instance.client.from('trip_notes').stream(primaryKey: ['id']).eq('trip_id', tripId).order('created_at');
-  Stream<List<Map<String, dynamic>>> _getRequestsStream(int tripId) => Supabase.instance.client.from('join_requests').stream(primaryKey: ['id']).eq('trip_id', tripId).order('created_at');
-
   void _refreshAllStreams() {
-    final tripId = widget.trip['id'];
+    final id = widget.trip['id'];
     setState(() {
-      _expensesStream = _getExpensesStream(tripId);
-      _packingStream = _getPackingStream(tripId);
-      _membersStream = _getMembersStream(tripId);
-      _notesStream = _getNotesStream(tripId);
-      _requestsStream = _getRequestsStream(tripId);
+      _expensesStream = Supabase.instance.client.from('expenses').stream(primaryKey: ['id']).eq('trip_id', id).order('created_at');
+      _packingStream = Supabase.instance.client.from('packing_items').stream(primaryKey: ['id']).eq('trip_id', id).order('created_at');
+      _membersStream = Supabase.instance.client.from('trip_members_with_permissions').stream(primaryKey: ['id']).eq('trip_id', id).order('name');
+      _notesStream = Supabase.instance.client.from('trip_notes').stream(primaryKey: ['id']).eq('trip_id', id).order('created_at');
+      _itineraryStream = Supabase.instance.client.from('itinerary_items').stream(primaryKey: ['id']).eq('trip_id', id).order('start_time');
+      _pollsStream = Supabase.instance.client.from('polls').stream(primaryKey: ['id']).eq('trip_id', id).order('created_at');
     });
   }
 
   Future<void> _fetchWeather() async {
-    final lat = widget.trip['latitude'];
-    final lng = widget.trip['longitude'];
-    if (lat == null || lng == null) {
-      if (mounted) setState(() => _isLoadingWeather = false);
-      return;
-    }
-    try {
-      final url = Uri.parse('https://api.openweathermap.org/data/2.5/weather?lat=$lat&lon=$lng&appid=$_weatherApiKey&units=metric');
-      final response = await http.get(url);
-      if (response.statusCode == 200 && mounted) {
-        setState(() {
-          _weatherData = json.decode(response.body);
-          _isLoadingWeather = false;
-        });
-      }
-    } catch (e) { if (mounted) setState(() => _isLoadingWeather = false); }
-  }
-
-  Future<void> _openGoogleMaps() async {
-    final lat = widget.trip['latitude'];
-    final lng = widget.trip['longitude'];
+    final lat = widget.trip['latitude']; final lng = widget.trip['longitude'];
     if (lat == null || lng == null) return;
-    final googleMapsUrl = Uri.parse('https://www.google.com/maps/dir/?api=1&destination=$lat,$lng');
     try {
-      if (!await launchUrl(googleMapsUrl, mode: LaunchMode.externalApplication)) await launchUrl(googleMapsUrl);
-    } catch (_) { if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Could not open maps."))); }
+      final url = Uri.parse('https://api.openweathermap.org/data/2.5/weather?lat=$lat&lon=$lng&appid=7893495de6bf87dc1c782d309dc77ea5&units=metric');
+      final res = await http.get(url);
+      if (res.statusCode == 200 && mounted) setState(() => _weatherData = json.decode(res.body));
+    } catch (_) {}
+  }
+  
+  Future<void> _genericDelete(String table, int id) async { await Supabase.instance.client.from(table).delete().eq('id', id); }
+
+  // --- 📅 TAB 1: OVERVIEW (Notes, Packing, Map) ---
+  
+  Widget _buildOverviewTab() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // Weather
+        if (_weatherData != null) Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(gradient: LinearGradient(colors: [Colors.blue.shade400, Colors.blue.shade200]), borderRadius: BorderRadius.circular(16)), child: Row(children: [Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text("${_weatherData!['main']['temp'].toStringAsFixed(1)}°C", style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white)), Text(_weatherData!['weather'][0]['description'].toUpperCase(), style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold))]), const Spacer(), const Icon(Icons.wb_sunny, size: 48, color: Colors.white)])),
+        const SizedBox(height: 20),
+        
+        // Map
+        if (widget.trip['latitude'] != null) ...[
+          GestureDetector(onTap: () => Navigator.push(context, MaterialPageRoute(builder: (c) => TripPreviewPage(tripName: widget.trip['destination'], lat: widget.trip['latitude'], lng: widget.trip['longitude']))), child: Container(height: 150, width: double.infinity, decoration: BoxDecoration(borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.grey.shade300)), child: ClipRRect(borderRadius: BorderRadius.circular(16), child: FlutterMap(options: MapOptions(initialCenter: latLng.LatLng(widget.trip['latitude'], widget.trip['longitude']), initialZoom: 13, interactionOptions: const InteractionOptions(flags: InteractiveFlag.none)), children: [TileLayer(urlTemplate: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', subdomains: const ['a','b','c','d']), MarkerLayer(markers: [Marker(point: latLng.LatLng(widget.trip['latitude'], widget.trip['longitude']), width: 40, height: 40, child: const Icon(Icons.location_on, color: Colors.red, size: 40))])])))),
+          const SizedBox(height: 20),
+        ],
+
+        // Packing
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Packing List", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)), if (_canEdit) PopupMenuButton<String>(icon: const Icon(Icons.add_circle, color: Colors.blue), onSelected: _importPackingTemplate, itemBuilder: (c) => [const PopupMenuItem(value: "custom", child: Text("Add Item")), const PopupMenuItem(value: "beach", child: Text("Import: Beach Trip 🏖️")), const PopupMenuItem(value: "hiking", child: Text("Import: Hiking ⛰️"))])]),
+        StreamBuilder<List<Map<String, dynamic>>>(stream: _packingStream, builder: (c, s) => Column(children: (s.data ?? []).map((i) => CheckboxListTile(title: Text(i['item_name'], style: TextStyle(decoration: i['is_checked'] ? TextDecoration.lineThrough : null)), value: i['is_checked'], onChanged: _canEdit ? (v) => Supabase.instance.client.from('packing_items').update({'is_checked': !i['is_checked']}).eq('id', i['id']) : null, secondary: _canEdit ? IconButton(icon: const Icon(Icons.close, size: 18), onPressed: () => _genericDelete('packing_items', i['id'])) : null)).toList())),
+        
+        const SizedBox(height: 20),
+        // Notes
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Notes", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)), if (_canEdit) IconButton(onPressed: _addNote, icon: const Icon(Icons.note_add, color: Colors.blue))]),
+        StreamBuilder<List<Map<String, dynamic>>>(stream: _notesStream, builder: (c, s) => Column(children: (s.data ?? []).map((n) => Card(child: ListTile(title: Text(n['content']), trailing: _canEdit ? IconButton(icon: const Icon(Icons.close, size: 18), onPressed: () => _genericDelete('trip_notes', n['id'])) : null))).toList())),
+      ]),
+    );
   }
 
-  void _showShareDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Invite People"),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text("Share this code. Friends can click 'Join Trip' on the home screen."),
-            const SizedBox(height: 20),
-            Container(padding: const EdgeInsets.all(15), decoration: BoxDecoration(color: Colors.blue[50], borderRadius: BorderRadius.circular(10)), child: SelectableText(_joinCode ?? "Generating...", style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 2))),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Close")),
-          ElevatedButton.icon(onPressed: () { Clipboard.setData(ClipboardData(text: _joinCode ?? "")); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Code copied!"))); }, icon: const Icon(Icons.copy), label: const Text("Copy Code")),
-        ],
+  // --- 🗺️ TAB 2: ITINERARY ---
+
+  Widget _buildItineraryTab() {
+    return Scaffold(
+      floatingActionButton: _canEdit ? FloatingActionButton.extended(onPressed: _addItineraryItem, label: const Text("Add Event"), icon: const Icon(Icons.add)) : null,
+      body: StreamBuilder<List<Map<String, dynamic>>>(
+        stream: _itineraryStream,
+        builder: (context, snapshot) {
+          if (!snapshot.hasData || snapshot.data!.isEmpty) return const Center(child: Text("No events yet. Start planning!", style: TextStyle(color: Colors.grey)));
+          final items = snapshot.data!;
+          return ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: items.length,
+            itemBuilder: (context, index) {
+              final item = items[index];
+              final date = DateTime.parse(item['start_time']);
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Column(children: [Text(DateFormat('MMM').format(date).toUpperCase(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)), Text(DateFormat('dd').format(date), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold))]),
+                  const SizedBox(width: 15),
+                  Expanded(child: Card(elevation: 2, child: ListTile(
+                    title: Text(item['title'], style: const TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text("${timeFormat.format(date)} • ${item['location_name'] ?? 'No Location'}"),
+                      if (item['description'] != null) Text(item['description'], style: TextStyle(color: Colors.grey[600], fontSize: 12))
+                    ]),
+                    trailing: _canEdit ? IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red), onPressed: () => _genericDelete('itinerary_items', item['id'])) : null,
+                  )))
+                ]),
+              );
+            },
+          );
+        },
       ),
     );
   }
 
-  Future<void> _toggleEditorPermission(String email) async {
-    final current = await Supabase.instance.client.from('shared_trips').select('permission').eq('trip_id', widget.trip['id']).eq('shared_with_email', email).maybeSingle();
-    if (current == null) return;
-    final newPerm = (current['permission'] == 'edit') ? 'view' : 'edit';
-    await Supabase.instance.client.from('shared_trips').update({'permission': newPerm}).eq('trip_id', widget.trip['id']).eq('shared_with_email', email);
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("User is now ${newPerm == 'edit' ? 'an EDITOR' : 'VIEW ONLY'}")));
+  // --- 💰 TAB 3: MONEY (Expenses + Split) ---
+
+  Widget _buildMoneyTab() {
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: _membersStream,
+      builder: (context, membersSnap) {
+        final members = membersSnap.data ?? [];
+        return StreamBuilder<List<Map<String, dynamic>>>(
+          stream: _expensesStream,
+          builder: (context, expensesSnap) {
+            final expenses = expensesSnap.data ?? [];
+            
+            // MATH LOGIC
+            double totalSpent = expenses.fold(0.0, (sum, e) => sum + (e['amount'] as num).toDouble());
+            double totalBudget = (widget.trip['budget'] as num).toDouble();
+            
+            // Who paid what?
+            Map<String, double> paidByUser = {};
+            for (var m in members) paidByUser[m['name']] = 0.0;
+            
+            for (var e in expenses) {
+              String payer = e['paid_by'] ?? 'Unknown';
+              paidByUser[payer] = (paidByUser[payer] ?? 0.0) + (e['amount'] as num).toDouble();
+            }
+
+            // Who owes who? (Split Evenly)
+            double fairShare = totalSpent / (members.isEmpty ? 1 : members.length);
+
+            return ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                // Budget Card
+                Card(color: Colors.blue.shade50, child: Padding(padding: const EdgeInsets.all(16), child: Column(children: [
+                   const Text("Total Budget", style: TextStyle(color: Colors.grey)),
+                   Text("₱${currencyFormat.format(totalBudget)}", style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                   const SizedBox(height: 10),
+                   LinearProgressIndicator(value: totalBudget==0?0:(totalSpent/totalBudget).clamp(0,1), backgroundColor: Colors.white, color: totalSpent>totalBudget?Colors.red:Colors.green),
+                   const SizedBox(height: 5),
+                   Text("Spent: ₱${currencyFormat.format(totalSpent)}", style: TextStyle(color: totalSpent>totalBudget?Colors.red:Colors.black)),
+                ]))),
+
+                const SizedBox(height: 20),
+                const Text("Fair Share Calculator", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 5),
+                // Debt List
+                ...members.map((m) {
+                  double paid = paidByUser[m['name']] ?? 0.0;
+                  double balance = paid - fairShare; // + means people owe me. - means I owe.
+                  return ListTile(
+                    dense: true,
+                    title: Text(m['name']),
+                    subtitle: Text("Paid: ₱${currencyFormat.format(paid)}"),
+                    trailing: Text(
+                      balance >= 0 ? "Gets back ₱${currencyFormat.format(balance)}" : "Owes ₱${currencyFormat.format(balance.abs())}",
+                      style: TextStyle(fontWeight: FontWeight.bold, color: balance >= 0 ? Colors.green : Colors.red),
+                    ),
+                  );
+                }),
+
+                const Divider(height: 40),
+                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Expenses History", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)), if (_canEdit) IconButton(onPressed: () => _addExpense(members), icon: const Icon(Icons.add_circle, color: Colors.blue))]),
+                ...expenses.map((e) => Card(child: ListTile(
+                  title: Text(e['title']),
+                  subtitle: Text("Paid by: ${e['paid_by'] ?? 'Unknown'}"),
+                  trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Text("₱${e['amount']}", style: const TextStyle(fontWeight: FontWeight.bold)),
+                    if (_canEdit) IconButton(icon: const Icon(Icons.close, size: 16), onPressed: () => _genericDelete('expenses', e['id']))
+                  ]),
+                ))),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
-  // 🚀 UPDATED: Fetch Nickname on Approval
-  Future<void> _handleRequest(Map<String, dynamic> request, bool approve) async {
-    await Supabase.instance.client.from('join_requests').update({'status': approve ? 'approved' : 'rejected'}).eq('id', request['id']);
-    if (approve) {
-      final String userEmail = request['email'];
-      final String userId = request['user_id'];
-      
-      // 1. Get Nickname from Profile
-      String displayName = userEmail.split('@')[0]; // Default
-      final profile = await Supabase.instance.client.from('profiles').select('nickname').eq('id', userId).maybeSingle();
-      if (profile != null && profile['nickname'] != null && profile['nickname'].toString().isNotEmpty) {
-        displayName = profile['nickname'];
+  // --- 🗳️ TAB 4: SOCIAL (Polls & Members) ---
+
+  Widget _buildSocialTab() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        // Polls Section
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Polls", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)), if (_canEdit) IconButton(onPressed: _createPoll, icon: const Icon(Icons.how_to_vote, color: Colors.blue))]),
+        StreamBuilder<List<Map<String, dynamic>>>(
+          stream: _pollsStream,
+          builder: (context, snapshot) {
+            if (!snapshot.hasData || snapshot.data!.isEmpty) return const Padding(padding: EdgeInsets.all(8), child: Text("No active polls.", style: TextStyle(color: Colors.grey)));
+            return Column(children: snapshot.data!.map((poll) => _buildPollCard(poll)).toList());
+          },
+        ),
+        
+        const Divider(height: 40),
+        // Members Section
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Members", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)), if (_canEdit) IconButton(onPressed: _addMember, icon: const Icon(Icons.person_add, color: Colors.blue))]),
+        StreamBuilder<List<Map<String, dynamic>>>(
+          stream: _membersStream,
+          builder: (context, snapshot) {
+            if (!snapshot.hasData) return const SizedBox();
+            return Column(children: snapshot.data!.map((m) {
+              final bool isEditor = (m['permission'] ?? 'view') == 'edit';
+              return ListTile(
+                leading: CircleAvatar(child: Text(m['name'][0])),
+                title: Text(m['name']),
+                subtitle: Text(m['email'] ?? "No email"),
+                trailing: _isOwner && m['email'] != null 
+                  ? IconButton(icon: Icon(Icons.vpn_key, color: isEditor ? Colors.amber : Colors.grey), onPressed: () => _toggleEditor(m['email']))
+                  : null,
+              );
+            }).toList());
+          },
+        ),
+      ],
+    );
+  }
+
+  // --- 🧩 WIDGET HELPERS ---
+
+  Widget _buildPollCard(Map<String, dynamic> poll) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(poll['question'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const SizedBox(height: 10),
+            // Fetch Options
+            FutureBuilder(
+              future: Supabase.instance.client.from('poll_options').select().eq('poll_id', poll['id']),
+              builder: (c, snap) {
+                if (!snap.hasData) return const SizedBox();
+                final options = List<Map<String, dynamic>>.from(snap.data as List);
+                return Column(children: options.map((opt) => _buildPollOption(opt)).toList());
+              }
+            )
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPollOption(Map<String, dynamic> option) {
+    return FutureBuilder(
+      future: Supabase.instance.client.from('poll_votes').select().eq('option_id', option['id']),
+      builder: (c, snap) {
+        final votes = snap.data as List? ?? [];
+        final count = votes.length;
+        final bool iVoted = votes.any((v) => v['user_email'] == _myEmail);
+
+        return ListTile(
+          visualDensity: VisualDensity.compact,
+          title: Text(option['text']),
+          trailing: Row(mainAxisSize: MainAxisSize.min, children: [Text("$count votes"), const SizedBox(width: 10), Icon(iVoted ? Icons.check_circle : Icons.circle_outlined, color: iVoted ? Colors.green : Colors.grey)]),
+          onTap: () async {
+            if (iVoted) {
+              await Supabase.instance.client.from('poll_votes').delete().eq('option_id', option['id']).eq('user_email', _myEmail!);
+            } else {
+              await Supabase.instance.client.from('poll_votes').insert({'option_id': option['id'], 'user_email': _myEmail!});
+            }
+            setState(() {}); // Refresh UI
+          },
+        );
       }
+    );
+  }
 
-      await Supabase.instance.client.from('shared_trips').insert({'trip_id': widget.trip['id'], 'shared_with_email': userEmail, 'permission': 'view'}); 
-      await Supabase.instance.client.from('trip_members').insert({'trip_id': widget.trip['id'], 'name': displayName, 'email': userEmail, 'is_paid': false});
+  // --- 📝 ACTIONS (Add/Import/Create) ---
+
+  Future<void> _importPackingTemplate(String type) async {
+    if (type == "custom") { _addPacking(); return; }
+    List<String> items = [];
+    if (type == "beach") items = ["Sunblock", "Swimsuit", "Towel", "Sunglasses", "Hat", "Slippers"];
+    if (type == "hiking") items = ["Hiking Boots", "Water Bottle", "Trail Mix", "Raincoat", "First Aid Kit"];
+    
+    for (String item in items) {
+      await Supabase.instance.client.from('packing_items').insert({'trip_id': widget.trip['id'], 'item_name': item});
     }
-    if (mounted) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(approve ? "User approved!" : "User rejected."))); _refreshAllStreams(); }
   }
 
-  Future<void> _deleteGeneric(String table, int id) async { 
-    await Supabase.instance.client.from(table).delete().eq('id', id); 
-    if (mounted) _refreshAllStreams(); 
+  Future<void> _addItineraryItem() async {
+    final titleC = TextEditingController();
+    final locC = TextEditingController();
+    TimeOfDay selectedTime = TimeOfDay.now();
+    DateTime selectedDate = DateTime.parse(widget.trip['start_date'] ?? DateTime.now().toIso8601String());
+
+    await showDialog(context: context, builder: (c) => AlertDialog(
+      title: const Text("Add Event"),
+      content: SingleChildScrollView(child: Column(children: [
+        TextField(controller: titleC, decoration: const InputDecoration(labelText: "Activity Name")),
+        TextField(controller: locC, decoration: const InputDecoration(labelText: "Location")),
+        const SizedBox(height: 10),
+        ElevatedButton(onPressed: () async {
+           final d = await showDatePicker(context: context, initialDate: selectedDate, firstDate: DateTime(2000), lastDate: DateTime(2100));
+           if (d!=null) selectedDate = d;
+        }, child: const Text("Select Date")),
+        ElevatedButton(onPressed: () async {
+           final t = await showTimePicker(context: context, initialTime: selectedTime);
+           if (t!=null) selectedTime = t;
+        }, child: const Text("Select Time")),
+      ])),
+      actions: [
+        ElevatedButton(onPressed: () async {
+          final dt = DateTime(selectedDate.year, selectedDate.month, selectedDate.day, selectedTime.hour, selectedTime.minute);
+          await Supabase.instance.client.from('itinerary_items').insert({
+            'trip_id': widget.trip['id'],
+            'title': titleC.text,
+            'location_name': locC.text,
+            'start_time': dt.toIso8601String()
+          });
+          if(mounted) Navigator.pop(c);
+        }, child: const Text("Add"))
+      ],
+    ));
   }
-  Future<void> _addItemGeneric(String table, Map<String, dynamic> data) async { await Supabase.instance.client.from(table).insert(data); if (mounted) _refreshAllStreams(); }
 
-  Future<void> _addExpense() async { final t=TextEditingController(); final a=TextEditingController(); await showDialog(context: context, builder: (context) => AlertDialog(title: const Text("Add Expense"), content: Column(mainAxisSize: MainAxisSize.min, children:[TextField(controller: t, decoration: const InputDecoration(labelText: "Item")), TextField(controller: a, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Cost"))]), actions:[TextButton(onPressed:()=>Navigator.pop(context), child:const Text("Cancel")), ElevatedButton(onPressed:() async {if(t.text.isNotEmpty && a.text.isNotEmpty) {await _addItemGeneric('expenses', {'trip_id': widget.trip['id'], 'title': t.text, 'amount': double.parse(a.text)}); Navigator.pop(context);}}, child: const Text("Add"))])); }
-  Future<void> _addPacking() async { final t=TextEditingController(); await showDialog(context: context, builder: (context) => AlertDialog(title: const Text("Add Item"), content: TextField(controller: t, decoration: const InputDecoration(labelText: "Name")), actions:[TextButton(onPressed:()=>Navigator.pop(context), child:const Text("Cancel")), ElevatedButton(onPressed:() async {if(t.text.isNotEmpty) {await _addItemGeneric('packing_items', {'trip_id': widget.trip['id'], 'item_name': t.text}); Navigator.pop(context);}}, child: const Text("Add"))])); }
-  Future<void> _addMember() async { final t=TextEditingController(); await showDialog(context: context, builder: (context) => AlertDialog(title: const Text("Add Member"), content: TextField(controller: t, decoration: const InputDecoration(labelText: "Name")), actions:[TextButton(onPressed:()=>Navigator.pop(context), child:const Text("Cancel")), ElevatedButton(onPressed:() async {if(t.text.isNotEmpty) {await _addItemGeneric('trip_members', {'trip_id': widget.trip['id'], 'name': t.text}); Navigator.pop(context);}}, child: const Text("Add"))])); }
-  Future<void> _addNote() async { final t=TextEditingController(); await showDialog(context: context, builder: (context) => AlertDialog(title: const Text("Add Note"), content: TextField(controller: t, maxLines: 3, decoration: const InputDecoration(labelText: "Content")), actions:[TextButton(onPressed:()=>Navigator.pop(context), child:const Text("Cancel")), ElevatedButton(onPressed:() async {if(t.text.isNotEmpty) {await _addItemGeneric('trip_notes', {'trip_id': widget.trip['id'], 'content': t.text}); Navigator.pop(context);}}, child: const Text("Save"))])); }
+  Future<void> _addExpense(List<dynamic> members) async { 
+    final t=TextEditingController(); final a=TextEditingController(); 
+    String selectedPayer = members.first['name'];
+    
+    await showDialog(context: context, builder: (c) => StatefulBuilder(builder: (c, setDialog) => AlertDialog(
+      title: const Text("Add Expense"), 
+      content: Column(mainAxisSize: MainAxisSize.min, children:[
+        TextField(controller: t, decoration: const InputDecoration(labelText: "Item")), 
+        TextField(controller: a, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Cost")),
+        const SizedBox(height: 10),
+        DropdownButton<String>(
+          value: selectedPayer,
+          isExpanded: true,
+          items: members.map<DropdownMenuItem<String>>((m) => DropdownMenuItem(value: m['name'], child: Text("Paid by: ${m['name']}"))).toList(),
+          onChanged: (v) => setDialog(() => selectedPayer = v!)
+        )
+      ]), 
+      actions:[ElevatedButton(onPressed:() async {
+        if(t.text.isNotEmpty) {
+          await Supabase.instance.client.from('expenses').insert({
+            'trip_id': widget.trip['id'], 
+            'title': t.text, 
+            'amount': double.parse(a.text),
+            'paid_by': selectedPayer // Save who paid
+          }); 
+          Navigator.pop(c);
+        }
+      }, child: const Text("Add"))]
+    ))); 
+  }
 
+  Future<void> _createPoll() async {
+    final qC = TextEditingController();
+    final o1C = TextEditingController();
+    final o2C = TextEditingController();
+    await showDialog(context: context, builder: (c) => AlertDialog(
+      title: const Text("Create Poll"),
+      content: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: qC, decoration: const InputDecoration(labelText: "Question")),
+        TextField(controller: o1C, decoration: const InputDecoration(labelText: "Option 1")),
+        TextField(controller: o2C, decoration: const InputDecoration(labelText: "Option 2")),
+      ]),
+      actions: [ElevatedButton(onPressed: () async {
+        final pollRes = await Supabase.instance.client.from('polls').insert({'trip_id': widget.trip['id'], 'question': qC.text}).select();
+        final pollId = pollRes[0]['id'];
+        await Supabase.instance.client.from('poll_options').insert([
+          {'poll_id': pollId, 'text': o1C.text},
+          {'poll_id': pollId, 'text': o2C.text},
+        ]);
+        Navigator.pop(c);
+      }, child: const Text("Create"))],
+    ));
+  }
+
+  // (Simple adds)
+  Future<void> _addPacking() async { final t=TextEditingController(); await showDialog(context: context, builder: (c)=>AlertDialog(title: const Text("Add Item"), content: TextField(controller: t), actions:[ElevatedButton(onPressed:()async{await Supabase.instance.client.from('packing_items').insert({'trip_id': widget.trip['id'], 'item_name': t.text});Navigator.pop(c);}, child:const Text("Add"))])); }
+  Future<void> _addNote() async { final t=TextEditingController(); await showDialog(context: context, builder: (c)=>AlertDialog(title: const Text("Add Note"), content: TextField(controller: t), actions:[ElevatedButton(onPressed:()async{await Supabase.instance.client.from('trip_notes').insert({'trip_id': widget.trip['id'], 'content': t.text});Navigator.pop(c);}, child:const Text("Add"))])); }
+  Future<void> _addMember() async { final t=TextEditingController(); await showDialog(context: context, builder: (c)=>AlertDialog(title: const Text("Add Member Name"), content: TextField(controller: t), actions:[ElevatedButton(onPressed:()async{await Supabase.instance.client.from('trip_members').insert({'trip_id': widget.trip['id'], 'name': t.text});Navigator.pop(c);}, child:const Text("Add"))])); }
+  Future<void> _toggleEditor(String email) async {
+    final cur = await Supabase.instance.client.from('shared_trips').select('permission').eq('trip_id', widget.trip['id']).eq('shared_with_email', email).maybeSingle();
+    final newP = (cur?['permission']=='edit')?'view':'edit';
+    await Supabase.instance.client.from('shared_trips').update({'permission': newP}).eq('trip_id', widget.trip['id']).eq('shared_with_email', email);
+    if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("User is now $newP")));
+  }
+
+  // --- 🏗️ BUILD ---
+  
   @override
   Widget build(BuildContext context) {
-    final bool hasLocation = widget.trip['latitude'] != null && widget.trip['longitude'] != null;
-    final String? startDateStr = widget.trip['start_date'];
-    final String? endDateStr = widget.trip['end_date'];
-    String dateRange = "";
-    if (startDateStr != null && endDateStr != null) {
-      dateRange = "${dateFormat.format(DateTime.parse(startDateStr))} - ${dateFormat.format(DateTime.parse(endDateStr))}";
-    }
-
     return Scaffold(
-      backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: Text(widget.trip['destination'], style: const TextStyle(color: Colors.white)),
-        backgroundColor: Colors.blue, 
-        iconTheme: const IconThemeData(color: Colors.white),
-        actions: [
-          IconButton(icon: const Icon(Icons.share, color: Colors.white), onPressed: _showShareDialog, tooltip: "Share Trip Code"),
-          if (hasLocation) IconButton(icon: const Icon(Icons.directions, color: Colors.white), onPressed: _openGoogleMaps, tooltip: "Get Directions")
-        ],
-      ),
-      body: WebContainer(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (dateRange.isNotEmpty)
-                Padding(padding: const EdgeInsets.only(bottom: 16.0), child: Row(children: [const Icon(Icons.calendar_today, color: Colors.grey, size: 20), const SizedBox(width: 8), Text(dateRange, style: const TextStyle(fontSize: 16, color: Colors.black87))])),
-              
-              if (_isOwner) 
-                StreamBuilder<List<Map<String, dynamic>>>(
-                  stream: _requestsStream,
-                  builder: (context, snapshot) {
-                    final requests = snapshot.data?.where((r) => r['status'] == 'pending').toList() ?? [];
-                    if (requests.isEmpty) return const SizedBox();
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 20),
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(color: Colors.orange[50], borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.orange)),
-                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        const Text("🔔 Join Requests", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orange)),
-                        ...requests.map((r) => ListTile(title: Text(r['email']), trailing: Row(mainAxisSize: MainAxisSize.min, children: [IconButton(icon: const Icon(Icons.check, color: Colors.green), onPressed: () => _handleRequest(r, true)), IconButton(icon: const Icon(Icons.close, color: Colors.red), onPressed: () => _handleRequest(r, false))]))),
-                      ]),
-                    );
-                  },
-                ),
-
-              if (hasLocation) ...[
-                GestureDetector(
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => TripPreviewPage(tripName: widget.trip['destination'], lat: widget.trip['latitude'], lng: widget.trip['longitude']))),
-                  child: Container(height: 200, width: double.infinity, decoration: BoxDecoration(borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.grey.shade300)), child: ClipRRect(borderRadius: BorderRadius.circular(16), child: Stack(children: [FlutterMap(options: MapOptions(initialCenter: latLng.LatLng(widget.trip['latitude'], widget.trip['longitude']), initialZoom: 13.0, interactionOptions: const InteractionOptions(flags: InteractiveFlag.none)), children: [TileLayer(urlTemplate: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', subdomains: const ['a', 'b', 'c', 'd']), MarkerLayer(markers: [Marker(point: latLng.LatLng(widget.trip['latitude'], widget.trip['longitude']), width: 40, height: 40, child: const Icon(Icons.location_on, color: Colors.red, size: 40))])]), Positioned(bottom: 10, right: 10, child: ElevatedButton.icon(onPressed: _openGoogleMaps, icon: const Icon(Icons.directions, size: 18), label: const Text("Directions")))]))),
-                ),
-                const SizedBox(height: 20),
-              ],
-              
-              if (hasLocation && !_isLoadingWeather && _weatherData != null)
-                Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(gradient: LinearGradient(colors: [Colors.blue.shade400, Colors.blue.shade200]), borderRadius: BorderRadius.circular(16)), child: Row(children: [Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text("${_weatherData!['main']['temp'].toStringAsFixed(1)}°C", style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white)), Text(_weatherData!['weather'][0]['description'].toUpperCase(), style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold))]), const Spacer(), Icon(Icons.wb_sunny, size: 48, color: Colors.white)])),
-              if (hasLocation) const SizedBox(height: 20),
-
-              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Travel Notes", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)), if (_canEdit) IconButton(onPressed: _addNote, icon: const Icon(Icons.note_add, color: Colors.blue))]),
-              StreamBuilder<List<Map<String, dynamic>>>(
-                stream: _notesStream,
-                builder: (context, snapshot) {
-                  if (!snapshot.hasData || snapshot.data!.isEmpty) return const Text("No notes yet.", style: TextStyle(color: Colors.grey));
-                  return Column(children: snapshot.data!.map((note) => Card(margin: const EdgeInsets.only(bottom: 8), child: ListTile(title: Text(note['content']), trailing: _canEdit ? IconButton(icon: const Icon(Icons.delete_outline, size: 20, color: Colors.grey), onPressed: () => _deleteGeneric('trip_notes', note['id'])) : null))).toList());
-                },
-              ),
-              const SizedBox(height: 20),
-
-              const Text("Budget", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-              
-              // We nest Members stream INSIDE the Budget area to calculate split
-              StreamBuilder<List<Map<String, dynamic>>>(
-                stream: _membersStream,
-                builder: (context, membersSnapshot) {
-                  final int memberCount = (membersSnapshot.data?.length ?? 1); 
-                  
-                  return StreamBuilder<List<Map<String, dynamic>>>(
-                    stream: _expensesStream,
-                    builder: (context, snapshot) {
-                      if (!snapshot.hasData) return const LinearProgressIndicator();
-                      final expenses = snapshot.data!;
-                      double totalSpent = expenses.fold(0, (sum, item) => sum + (item['amount'] as num).toDouble());
-                      double totalBudget = (widget.trip['budget'] as num).toDouble();
-                      double budgetPerPerson = totalBudget / (memberCount > 0 ? memberCount : 1);
-
-                      return Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16), 
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween, 
-                                children: [
-                                  Text("₱${currencyFormat.format(totalSpent)}", style: TextStyle(fontWeight: FontWeight.bold, color: totalSpent > totalBudget ? Colors.red : Colors.black)), 
-                                  Text(" / ₱${currencyFormat.format(totalBudget)}", style: const TextStyle(color: Colors.grey))
-                                ]
-                              ),
-                              const SizedBox(height: 5),
-                              Text(
-                                "₱${currencyFormat.format(budgetPerPerson)} per person ($memberCount members)",
-                                style: TextStyle(fontSize: 12, color: Colors.blue.shade700, fontWeight: FontWeight.bold),
-                              ),
-                              const SizedBox(height: 10), 
-                              LinearProgressIndicator(value: totalBudget == 0 ? 0 : (totalSpent/totalBudget).clamp(0, 1), color: totalSpent > totalBudget ? Colors.red : Colors.green, backgroundColor: Colors.grey[200]), 
-                              ExpansionTile(
-                                title: const Text("Details"), 
-                                children: [...expenses.map((e) => ListTile(title: Text(e['title']), trailing: Row(mainAxisSize: MainAxisSize.min, children: [Text("₱${e['amount']}"), if (_canEdit) IconButton(icon: const Icon(Icons.close, size: 16), onPressed: () => _deleteGeneric('expenses', e['id']))]))), if (_canEdit) TextButton(onPressed: _addExpense, child: const Text("Add Expense"))]
-                              )
-                            ]
-                          )
-                        )
-                      );
-                    },
-                  );
-                }
-              ),
-              const SizedBox(height: 20),
-
-              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Members", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)), if (_canEdit) IconButton(onPressed: _addMember, icon: const Icon(Icons.person_add, color: Colors.blue))]),
-              StreamBuilder<List<Map<String, dynamic>>>(
-                stream: _membersStream,
-                builder: (context, snapshot) {
-                  if (!snapshot.hasData || snapshot.data!.isEmpty) return const Text("No members.", style: TextStyle(color: Colors.grey));
-                  return Card(child: Column(children: snapshot.data!.map((m) {
-                    final bool hasEmail = m['email'] != null;
-                    // 🚀 NEW: Get Visual Permission
-                    final String permission = m['permission'] ?? 'view'; 
-                    final bool isEditor = permission == 'edit';
-
-                    return CheckboxListTile(
-                      title: Text(m['name']),
-                      subtitle: Text(m['is_paid'] ? "Paid" : "Not Paid", style: TextStyle(color: m['is_paid'] ? Colors.green : Colors.red)),
-                      value: m['is_paid'],
-                      onChanged: _canEdit ? (val) async { await Supabase.instance.client.from('trip_members').update({'is_paid': !m['is_paid']}).eq('id', m['id']); } : null,
-                      secondary: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (_isOwner && hasEmail) 
-                             IconButton(
-                               icon: Icon(Icons.vpn_key, color: isEditor ? Colors.amber : Colors.grey, size: 20),
-                               tooltip: isEditor ? "Demote to Viewer" : "Promote to Editor",
-                               onPressed: () => _toggleEditorPermission(m['email']),
-                             ),
-                          if (_canEdit) 
-                            IconButton(icon: const Icon(Icons.delete_outline, color: Colors.grey), onPressed: () => _deleteGeneric('trip_members', m['id'])),
-                        ],
-                      ),
-                    );
-                  }).toList()));
-                },
-              ),
-              const SizedBox(height: 20),
-
-              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Packing", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)), if (_canEdit) IconButton(onPressed: _addPacking, icon: const Icon(Icons.add_circle, color: Colors.blue))]),
-              StreamBuilder<List<Map<String, dynamic>>>(
-                stream: _packingStream,
-                builder: (context, snapshot) {
-                  if (!snapshot.hasData || snapshot.data!.isEmpty) return const Text("Empty list.", style: TextStyle(color: Colors.grey));
-                  return Card(child: Column(children: snapshot.data!.map((item) => CheckboxListTile(title: Text(item['item_name'], style: TextStyle(decoration: item['is_checked'] ? TextDecoration.lineThrough : null, color: Colors.black)), value: item['is_checked'], onChanged: _canEdit ? (val) async { await Supabase.instance.client.from('packing_items').update({'is_checked': !item['is_checked']}).eq('id', item['id']); } : null, secondary: _canEdit ? IconButton(icon: const Icon(Icons.delete_outline), onPressed: () => _deleteGeneric('packing_items', item['id'])) : null)).toList()));
-                },
-              ),
-              const SizedBox(height: 50),
-            ],
-          ),
+        title: Text(widget.trip['destination']),
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: const [
+            Tab(icon: Icon(Icons.dashboard), text: "Plan"),
+            Tab(icon: Icon(Icons.timeline), text: "Timeline"),
+            Tab(icon: Icon(Icons.attach_money), text: "Money"),
+            Tab(icon: Icon(Icons.people), text: "Social"),
+          ],
         ),
+        actions: [IconButton(icon: const Icon(Icons.share), onPressed: () {
+             showDialog(context: context, builder: (c) => AlertDialog(content: SelectableText(widget.trip['join_code'] ?? "No Code")));
+        })]
+      ),
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          _buildOverviewTab(),
+          _buildItineraryTab(),
+          _buildMoneyTab(),
+          _buildSocialTab(),
+        ],
       ),
     );
   }
