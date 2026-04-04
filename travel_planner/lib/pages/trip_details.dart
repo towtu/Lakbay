@@ -30,6 +30,7 @@ class _TripDetailsPageState extends State<TripDetailsPage> with SingleTickerProv
   late Stream<List<Map<String, dynamic>>> _notesStream;
   late Stream<List<Map<String, dynamic>>> _itineraryStream;
   late Stream<List<Map<String, dynamic>>> _pollsStream;
+  late Stream<List<Map<String, dynamic>>> _joinRequestsStream;
 
   Map<String, dynamic>? _weatherData;
   bool _isOwner = false;
@@ -70,6 +71,7 @@ class _TripDetailsPageState extends State<TripDetailsPage> with SingleTickerProv
       _notesStream = Supabase.instance.client.from('trip_notes').stream(primaryKey: ['id']).eq('trip_id', id);
       _itineraryStream = Supabase.instance.client.from('itinerary_items').stream(primaryKey: ['id']).eq('trip_id', id);
       _pollsStream = Supabase.instance.client.from('polls').stream(primaryKey: ['id']).eq('trip_id', id);
+      _joinRequestsStream = Supabase.instance.client.from('join_requests').stream(primaryKey: ['id']).eq('trip_id', id);
     });
   }
 
@@ -189,6 +191,19 @@ class _TripDetailsPageState extends State<TripDetailsPage> with SingleTickerProv
         if (!snapshot.hasData) return const SizedBox();
         return Column(children: snapshot.data!.map((m) => _buildMemberTile(m)).toList());
       }),
+      if (_canEdit) ...[
+        const Divider(height: 40),
+        const Text("Pending Join Requests", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        StreamBuilder<List<Map<String, dynamic>>>(
+          stream: _joinRequestsStream,
+          builder: (context, snapshot) {
+            if (!snapshot.hasData) return const SizedBox();
+            final pendingRequests = snapshot.data!.where((req) => req['status'] == 'pending').toList();
+            if (pendingRequests.isEmpty) return const Padding(padding: EdgeInsets.all(8), child: Text("No pending requests.", style: TextStyle(color: Colors.grey)));
+            return Column(children: pendingRequests.map((req) => _buildJoinRequestTile(req)).toList());
+          }
+        ),
+      ],
     ]);
   }
 
@@ -265,6 +280,58 @@ class _TripDetailsPageState extends State<TripDetailsPage> with SingleTickerProv
       final bool iVoted = votes.any((v) => v['user_email'] == _myEmail); 
       return ListTile(visualDensity: VisualDensity.compact, title: Text(option['text']), trailing: Row(mainAxisSize: MainAxisSize.min, children: [Text("$count votes"), const SizedBox(width: 10), Icon(iVoted ? Icons.check_circle : Icons.circle_outlined, color: iVoted ? Colors.green : Colors.grey)]), onTap: () async { if (iVoted) { await Supabase.instance.client.from('poll_votes').delete().eq('option_id', option['id']).eq('user_email', _myEmail!); } else { await Supabase.instance.client.from('poll_votes').insert({'option_id': option['id'], 'user_email': _myEmail!}); } setState(() {}); }); 
     });
+  }
+
+  Widget _buildJoinRequestTile(Map<String, dynamic> req) {
+    return ListTile(
+      title: Text(req['email'] ?? 'Unknown User'),
+      subtitle: const Text('Wants to join the trip'),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            icon: const Icon(Icons.check_circle, color: Colors.green),
+            onPressed: () => _handleJoinRequest(req, true),
+          ),
+          IconButton(
+            icon: const Icon(Icons.cancel, color: Colors.red),
+            onPressed: () => _handleJoinRequest(req, false),
+          ),
+        ],
+      )
+    );
+  }
+
+  Future<void> _handleJoinRequest(Map<String, dynamic> req, bool accept) async {
+    try {
+      if (accept) {
+        // Add to shared_trips
+        await Supabase.instance.client.from('shared_trips').insert({
+          'trip_id': widget.trip['id'],
+          'shared_with_email': req['email'],
+          'permission': 'view'
+        });
+        // Add to trip_members
+        String name = req['email'].toString().split('@')[0];
+        await Supabase.instance.client.from('trip_members').insert({
+          'trip_id': widget.trip['id'],
+          'name': name,
+          'email': req['email']
+        });
+        // Update request status
+        await Supabase.instance.client.from('join_requests').update({'status': 'approved'}).eq('id', req['id']);
+      } else {
+        // Reject request
+        await Supabase.instance.client.from('join_requests').update({'status': 'rejected'}).eq('id', req['id']);
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(accept ? "Request accepted" : "Request rejected")));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+      }
+    }
   }
 
   // --- 📝 ACTIONS ---
